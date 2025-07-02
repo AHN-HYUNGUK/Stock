@@ -2,9 +2,7 @@ import datetime, os, re, requests
 from collections import Counter
 from bs4 import BeautifulSoup
 from googletrans import Translator
-from keep_alive import keep_alive
 
-keep_alive()
 
 # ✅ 환경 변수
 TOKEN = os.environ['TOKEN']
