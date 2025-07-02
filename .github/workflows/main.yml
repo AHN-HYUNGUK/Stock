@@ -1,34 +1,32 @@
-name: Daily Telegram Bot
+name: Auto Telegram Bot
 
 on:
   schedule:
-    - cron: '0 22 * * *'  # 오전 7시 KST (UTC+9 → UTC 기준 밤 10시)
-    - cron: '6 6 * * *'   # 오후 3시 KST (UTC 기준 오전 6시)
-  workflow_dispatch:
+    - cron: '0 22 * * *'  # KST 07시 (UTC 기준 22시)
+    - cron: '6 6 * * *'   # KST 15시 (UTC 기준 06시)
+  workflow_dispatch:      # 수동 실행 버튼도 활성화
 
 jobs:
   run-bot:
     runs-on: ubuntu-latest
     steps:
-      - name: Checkout repository
-        uses: actions/checkout@v3
+    - name: Checkout code
+      uses: actions/checkout@v3
 
-      - name: Set up Python
-        uses: actions/setup-python@v4
-        with:
-          python-version: '3.10'
+    - name: Set up Python
+      uses: actions/setup-python@v4
+      with:
+        python-version: '3.10'
 
-      - name: Install dependencies
-        run: |
-          python -m pip install --upgrade pip
-          pip install -r requirements.txt
+    - name: Install dependencies
+      run: |
+        pip install -r requirements.txt
 
-      - name: Run bot
-        env:
-          TOKEN: ${{ secrets.TOKEN }}
-          CHAT_ID: ${{ secrets.CHAT_ID }}
-          NEWSAPI: ${{ secrets.NEWSAPI }}
-          EXCHANGEAPI: ${{ secrets.EXCHANGEAPI }}
-          TWELVEDATA_API: ${{ secrets.TWELVEDATA_API }}
-        run: |
-          python main.py
+    - name: Run bot
+      env:
+        TOKEN: ${{ secrets.TOKEN }}
+        CHAT_ID: ${{ secrets.CHAT_ID }}
+        NEWSAPI: ${{ secrets.NEWSAPI }}
+        EXCHANGEAPI: ${{ secrets.EXCHANGEAPI }}
+        TWELVEDATA_API: ${{ secrets.TWELVEDATA_API }}
+      run: python main.py
