@@ -1,20 +1,27 @@
 name: Auto Telegram Bot
 
 on:
-  schedule:
-    - cron: '0 22 * * *'  # 한국 시간 오전 7시
-    - cron: '0 6 * * *'   # 한국 시간 오후 3시
   workflow_dispatch:
+  schedule:
+    - cron: "0 22 * * *"  # 오전 7시 (KST) → 22시 (UTC)
+    - cron: "6 6 * * *"   # 오후 3시 (KST) → 6시 6분 (UTC)
 
 jobs:
   run-bot:
     runs-on: ubuntu-latest
+    env:
+      TOKEN: ${{ secrets.TOKEN }}
+      CHAT_ID: ${{ secrets.CHAT_ID }}
+      NEWSAPI: ${{ secrets.NEWSAPI }}
+      EXCHANGEAPI: ${{ secrets.EXCHANGEAPI }}
+      TWELVEDATA_API: ${{ secrets.TWELVEDATA_API }}
+
     steps:
-      - name: Checkout repository
-        uses: actions/checkout@v3
+      - name: Checkout code
+        uses: actions/checkout@v2
 
       - name: Set up Python
-        uses: actions/setup-python@v4
+        uses: actions/setup-python@v2
         with:
           python-version: '3.10'
 
