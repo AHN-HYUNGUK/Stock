@@ -156,7 +156,8 @@ def fetch_naver_news_api(query="미국 증시", display=10):
     return result
 
 
-
+print(fetch_naver_news_api("뉴욕 증시", 10))
+print(fetch_naver_news_api("S&P 500", 10))
 
 
 
