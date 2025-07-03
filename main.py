@@ -97,22 +97,21 @@ def fetch_us_market_news_titles():
         return "❗ 뉴스 수집 실패"
 
 # ✅ GPT-4o mini 요약
-"""
-def summarize_news_with_gpt(news_titles):
-    if "❗" in news_titles:
-        return "(미국 뉴스 요약 실패)"
-    prompt = f"""다음은 미국 증시 관련 기사 제목들입니다. 이를 바탕으로 한국어로 간결한 아침 뉴스 요약을 작성해 주세요.\n\n{news_titles}"""
-    try:
-        response = openai.ChatCompletion.create(
-            model="gpt-4o",
-            messages=[{"role": "user", "content": prompt}],
-            temperature=0.3,
-            max_tokens=300
-        )
-        return response.choices[0].message.content.strip()
-    except Exception as e:
-        return f"(GPT 요약 실패: {e})"
-"""
+# def summarize_news_with_gpt(news_titles):
+#     if "❗" in news_titles:
+#         return "(미국 뉴스 요약 실패)"
+#     prompt = f"""다음은 미국 증시 관련 기사 제목들입니다. 이를 바탕으로 한국어로 간결한 아침 뉴스 요약을 작성해 주세요.\n\n{news_titles}"""
+#     try:
+#         response = openai.ChatCompletion.create(
+#             model="gpt-4o",
+#             messages=[{"role": "user", "content": prompt}],
+#             temperature=0.3,
+#             max_tokens=300
+#         )
+#         return response.choices[0].message.content.strip()
+#     except Exception as e:
+#         return f"(GPT 요약 실패: {e})"
+
 
 
 
