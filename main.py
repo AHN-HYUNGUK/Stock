@@ -167,12 +167,23 @@ def build_message():
 
 
 
-# ✅ 텔레그램 전송
+# ✅ 텔레그램 전송 함수 (안정화 적용 완료)
 def send_to_telegram():
     message = build_message()
-    res = requests.post(TELEGRAM_URL, data={"chat_id": CHAT_ID, "text": message})
+
+    # ✅ 해결 방법 1: 길이 제한 적용 (최대 4096자, 여유 있게 3990자)
+    if len(message) > 4000:
+        message = message[:3990] + "\n(※ 메시지 길이 초과로 일부 생략됨)"
+
+    # ✅ 해결 방법 2: parse_mode 제거
+    res = requests.post(TELEGRAM_URL, data={
+        "chat_id": CHAT_ID,
+        "text": message
+    })
+
     print("✅ 응답 코드:", res.status_code)
     print("📨 응답 내용:", res.text)
+
 
 # ✅ 예약 실행 (Replit 또는 로컬 테스트용)
 schedule.every().day.at("07:00").do(send_to_telegram)
