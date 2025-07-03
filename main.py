@@ -162,13 +162,14 @@ def fetch_daum_popular_news(count=10):
     res.encoding = "utf-8"
     soup = BeautifulSoup(res.text, "html.parser")
 
-    items = soup.select("ol.list_news2 li")[:count]
+    # Daum 랭킹은 #cSub > div > ul > li 에 들어 있습니다
+    items = soup.select("#cSub > div > ul > li")[:count]
     if not items:
         return "(다음 인기 뉴스 없음)"
 
     result = f"📌 다음 인기 뉴스 TOP {count}\n"
     for li in items:
-        a = li.select_one("a.link_txt")
+        a = li.select_one("div.item_issue > div > strong > a")
         if not a:
             continue
         title = a.get_text(strip=True)
