@@ -135,7 +135,6 @@ def fetch_naver_top10_news():
         res.encoding = "utf-8"
         soup = BeautifulSoup(res.text, "html.parser")
 
-        # 전체 랭킹 중 최상단 TOP 10 뉴스
         news_links = soup.select("div.rankingnews_box a")[:10]
         result = "📌 네이버 랭킹 뉴스 TOP 10\n"
         
@@ -148,6 +147,7 @@ def fetch_naver_top10_news():
         return result
     except Exception as e:
         return f"(랭킹 뉴스 수집 실패: {e})"
+
 
 
 
