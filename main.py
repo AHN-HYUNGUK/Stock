@@ -1,6 +1,9 @@
 # main.py
 
 import datetime, os, re, requests, schedule, time
+import openai
+import os
+openai.api_key = os.getenv("OPENAI_API_KEY")  # ✅ 꼭 필요함
 from collections import Counter
 from bs4 import BeautifulSoup
 from googletrans import Translator
