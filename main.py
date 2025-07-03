@@ -73,33 +73,30 @@ def get_sector_etf_changes(api_key):
             result.append(f"{name}: 정보 없음")
     return "\n".join(result)
 
-# ✅ 네이버 한국 뉴스 (업종별)
-sector_keywords_kr = {
-    "📈 한국증시": ["코스피", "금리", "환율",  "외환보유액"],
-    "💻 IT·반도체": ["반도체", "AI"],
-    "정치이슈": ["이재명", "윤석열", "국회", "특검"]
-}
-
-def fetch_naver_sector_news(sector_dict):
+# ✅ 네이버 한국 뉴스 (랭킹)
+def fetch_naver_ranking_news():
+    base_url = "https://news.naver.com/main/ranking/popularDay.naver"
     headers = {"User-Agent": "Mozilla/5.0"}
-    message = ""
-    for sector, keywords in sector_dict.items():
-        news_items = []
-        for kw in keywords:
-            try:
-                url = f"https://search.naver.com/search.naver?where=news&query={kw}"
-                res = requests.get(url, headers=headers, timeout=5)
-                soup = BeautifulSoup(res.text, "html.parser")
-                articles = soup.select("ul.list_news div.news_area a.tit")[:1]
-                for a in articles:
+    sections = {"경제": "101", "세계": "104", "정치": "100"}
+    result = ""
+
+    for name, sec_id in sections.items():
+        url = f"{base_url}?sectionId={sec_id}"
+        try:
+            res = requests.get(url, headers=headers)
+            soup = BeautifulSoup(res.text, "html.parser")
+            items = soup.select("ul.ranking_list li a")[:3]
+            if items:
+                result += f"📌 {name} 뉴스 TOP 3\n"
+                for a in items:
                     title = a.text.strip()
-                    link = a['href']
-                    news_items.append(f"• {title}\n👉 {link}")
-            except:
-                continue
-        if news_items:
-            message += f"{sector}\n" + "\n".join(news_items[:2]) + "\n\n"
-    return message or "(관련 뉴스 없음)\n"
+                    link = "https://news.naver.com" + a['href']
+                    result += f"• {title}\n👉 {link}\n"
+                result += "\n"
+        except:
+            result += f"({name} 뉴스 수집 실패)\n"
+    return result or "(랭킹 뉴스 없음)"
+
 
 # ✅ 미국 관련 세계 뉴스 (네이버 검색 기반)
 def fetch_us_world_news():
@@ -119,9 +116,7 @@ def build_message():
     msg += f"📊 미국 주요 지수:\n{get_us_indices()}\n\n"
     msg += f"💱 환율:\n{get_exchange_rates()}\n\n"
     msg += f"📉 미국 섹터별 지수 변화:\n{get_sector_etf_changes(TWELVE_API_KEY)}\n\n"
-    msg += f"🇰🇷 한국 증시 뉴스 (업종별):\n{fetch_naver_sector_news(sector_keywords_kr)}"
-    msg += f"🌎 미국 관련 세계 뉴스:\n{fetch_us_world_news()}\n"
-    msg += "\n출처: investing.com / twelvedata.com / exchangerate-api.com / naver.com"
+    msg += f"\n📰 네이버 랭킹 뉴스:\n{fetch_naver_ranking_news()}"
     return msg
 
 # ✅ 텔레그램 전송
