@@ -87,14 +87,21 @@ def fetch_us_market_news_titles():
         headers = {"User-Agent": "Mozilla/5.0"}
         res = requests.get(url, headers=headers)
         soup = BeautifulSoup(res.text, "html.parser")
-        headlines = soup.select("a.most-popular-item")[:3]
+
+        # 최신 기사 섹션
+        headlines = soup.select("a[data-analytics-link='article']")[:3]
+
         results = []
         for h in headlines:
             title = h.get_text(strip=True)
-            results.append(title)
-        return "\n".join(results)
-    except:
-        return "❗ 뉴스 수집 실패"
+            link = h.get("href")
+            if not link.startswith("http"):
+                link = "https://www.investopedia.com" + link
+            results.append(f"• {title}\n👉 {link}")
+        return "\n".join(results) if results else "(기사 없음)"
+    except Exception as e:
+        return f"(뉴스 수집 실패: {e})"
+
 
 # ✅ GPT-4o mini 요약
 # def summarize_news_with_gpt(news_titles):
