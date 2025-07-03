@@ -3,4 +3,4 @@ beautifulsoup4
 googletrans==4.0.0-rc1
 schedule
 openai
-feedparser
+python-dotenv
