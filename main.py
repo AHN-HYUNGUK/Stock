@@ -6,7 +6,6 @@ import re
 import requests
 import schedule
 import time
-import feedparser
 import openai              # ← os 다음에 import openai
 from collections import Counter
 from bs4 import BeautifulSoup
