@@ -135,23 +135,21 @@ def fetch_naver_top10_news():
         res.encoding = "utf-8"
         soup = BeautifulSoup(res.text, "html.parser")
 
-        # 각 랭킹 박스에서 a.news_tit 태그 추출
-        links = soup.select("ul.rankingnews_list a")[:10]
+        items = soup.select("div.rankingnews_box ul.ranking_list li")[:10]
         result = "📌 네이버 랭킹 뉴스 TOP 10\n"
 
-        for a in links:
-            title = a.text.strip()
-            href = a.get("href")
-            if not href.startswith("http"):
-                href = "https://news.naver.com" + href
-            result += f"• {title}\n👉 {href}\n"
-
+        for item in items:
+            a_tag = item.select_one("a")
+            img_tag = item.select_one("img")
+            if a_tag and img_tag:
+                title = img_tag.get("alt").strip()
+                link = a_tag["href"]
+                if not link.startswith("http"):
+                    link = "https://news.naver.com" + link
+                result += f"• {title}\n👉 {link}\n"
         return result
     except Exception as e:
         return f"(랭킹 뉴스 수집 실패: {e})"
-
-
-
 
 
 
