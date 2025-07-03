@@ -155,48 +155,27 @@ def fetch_us_market_news_titles():
 
 
 # ✅ 다음 한국 뉴스 (랭킹)
-import re, json, requests
-from bs4 import BeautifulSoup
-
-def fetch_media_press_ranking_fast(press_id="215", count=10):
+# 🟢 다시 쓰는, 아까 잘 되던 정적 크롤링 함수
+def fetch_media_press_ranking(press_id="215", count=10):
     url = f"https://media.naver.com/press/{press_id}/ranking"
     headers = {"User-Agent": "Mozilla/5.0"}
     res = requests.get(url, headers=headers)
     res.encoding = "utf-8"
+    soup = BeautifulSoup(res.text, "html.parser")
 
-    # 1) __NEXT_DATA__ 스크립트에서 JSON 문자열 추출
-    m = re.search(
-        r'<script id="__NEXT_DATA__" type="application/json">(.+?)</script>',
-        res.text,
-        re.S
-    )
-    if not m:
-        return "(랭킹 데이터 없음)"
+    items = soup.select("ul.list_ranking li")[:count]
+    if not items:
+        return f"(press/{press_id} 랭킹 뉴스 없음)"
 
-    data = json.loads(m.group(1))
-    # 2) JSON 구조를 따라 랭킹 리스트 꺼내기
-    #    (Next.js pageProps 아래에 들어있는 구조를 확인하세요)
-    ranking_list = (
-        data
-        .get("props", {})
-        .get("pageProps", {})
-        .get("ranking", {})
-        .get("list", [])
-    )
-
-    if not ranking_list:
-        return "(랭킹 뉴스 없음)"
-
-    # 3) 상위 count개만
-    items = ranking_list[:count]
     result = f"📌 언론사 {press_id} 랭킹 뉴스 TOP {count}\n"
-    for it in items:
-        title = it.get("title", "").strip()
-        link  = it.get("link", "")
-        # link가 "/article/215/000..." 형태라면 절대경로 보정
-        if link.startswith("/"):
-            link = "https://n.news.naver.com" + link
-        result += f"• {title}\n👉 {link}\n"
+    for item in items:
+        a = item.select_one("a")
+        # <a title="제목"> 속성 사용
+        title = a.get("title", "").strip()
+        href  = a["href"]
+        if not href.startswith("http"):
+            href = "https://media.naver.com" + href
+        result += f"• {title}\n👉 {href}\n"
 
     return result
 
@@ -229,7 +208,7 @@ def send_to_telegram():
         f"📰 미국 증시 주요 기사:\n{fetch_us_market_news_titles()}\n"
     )
     # Playwright로 크롤링한 215 랭킹 뉴스
-    part2 = debug_next_data("215")
+    part2 = fetch_media_press_ranking("215", 10)
 
     for msg in [part1, part2]:
         if len(msg) > 4000:
