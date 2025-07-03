@@ -133,22 +133,27 @@ def fetch_us_market_news_titles():
 # ✅ 네이버 한국 뉴스 (랭킹)
 import re
 
-def fetch_media_press_rss(press_id="215", count=10):
-    """
-    media.naver.com 의 특정 언론사 press_id 에 대한 RSS 피드에서
-    최신 count개 기사를 가져옵니다.
-    """
-    # 언론사 RSS URL (홈페이지 헤더나 <link> 태그에서 가져오시면 정확)
-    rss_url = f"https://media.naver.com/press/{press_id}/rss"  
-    feed = feedparser.parse(rss_url)
+def fetch_naver_news_api(query="미국 증시", display=10):
+    headers = {
+        "X-Naver-Client-Id": NAVER_CLIENT_ID,
+        "X-Naver-Client-Secret": NAVER_CLIENT_SECRET,
+    }
+    params = {
+        "query": query,
+        "display": display,
+        "sort": "date"
+    }
+    url = "https://openapi.naver.com/v1/search/news.json"
+    res = requests.get(url, headers=headers, params=params).json()
+    items = res.get("items", [])
+    if not items:
+        return "(뉴스 없음)"
 
-    if not feed.entries:
-        return f"(press/{press_id} RSS 뉴스 없음)"
-
-    entries = feed.entries[:count]
-    result = f"📌 언론사 {press_id} 최신 뉴스 TOP {count}\n"
-    for e in entries:
-        result += f"• {e.title}\n👉 {e.link}\n"
+    result = f"📌 네이버 뉴스검색 '{query}' 최신 {display}개\n"
+    for it in items:
+        title = it["title"].replace("<b>", "").replace("</b>", "")
+        link  = it["link"]
+        result += f"• {title}\n👉 {link}\n"
     return result
 
 
@@ -165,8 +170,7 @@ def build_message():
     message += f"💱 환율:\n{get_exchange_rates()}\n\n"
     message += f"📉 미국 섹터별 지수 변화:\n{get_sector_etf_changes(TWELVE_API_KEY)}\n\n"
     message += f"📰 미국 증시 주요 기사:\n{headlines}\n\n"
-    message += f"📰 네이버 랭킹 뉴스:\n{fetch_naver_top10_news()}\n"
-    message += fetch_media_press_ranking("215", 10)  # press_id="215", TOP 10개
+    message += "\n" + fetch_naver_news_api("미국 증시", 10)
     return message
 
 
