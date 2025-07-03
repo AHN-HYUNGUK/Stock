@@ -129,27 +129,23 @@ def fetch_us_market_news_titles():
 # ✅ 네이버 한국 뉴스 (랭킹)
 def fetch_naver_top10_news():
     try:
-        url = "https://news.naver.com/main/ranking/popularDay.naver"
+        url = "https://media.naver.com/press/005/ranking?type=popular"  # 국정일보 예시
         headers = {"User-Agent": "Mozilla/5.0"}
         res = requests.get(url, headers=headers)
         res.encoding = "utf-8"
         soup = BeautifulSoup(res.text, "html.parser")
 
-        # 모든 랭킹 영역에서 기사 제목 추출
-        news_items = soup.select("div.rankingnews_box ul.ranking_list li")[:10]
+        items = soup.select("ul.list_ranking li a")[:10]
         result = "📌 네이버 랭킹 뉴스 TOP 10\n"
-
-        for item in news_items:
-            a_tag = item.select_one("a")
-            title = a_tag.text.strip()
-            link = a_tag["href"]
-            if not link.startswith("http"):
-                link = "https://news.naver.com" + link
+        for a in items:
+            title = a.text.strip()
+            link = "https://media.naver.com" + a.get("href")
             result += f"• {title}\n👉 {link}\n"
 
         return result
     except Exception as e:
         return f"(랭킹 뉴스 수집 실패: {e})"
+
 
 
 
