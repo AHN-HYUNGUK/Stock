@@ -2,19 +2,19 @@ name: US Stock News
 
 on:
   schedule:
-    - cron: "0 21 * * *"  # 매일 오전 6시 자동 실행
-    - cron: "0 05 * * *"  # 매일 오후 3시 자동 실행
-  workflow_dispatch:      # ✅ 수동 실행 허용
+    - cron: "0 21 * * *"  # 매일 오전 6시 KST (UTC 21:00)
+    - cron: "0 06 * * *"  # 매일 오후 3시 KST (UTC 06:00)
+  workflow_dispatch:      # 수동 실행 허용
 
 jobs:
   run-news-bot:
     runs-on: ubuntu-latest
     env:
       OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
-      TOKEN: ${{ secrets.TOKEN }}
-      CHAT_ID: ${{ secrets.CHAT_ID }}
-      EXCHANGEAPI: ${{ secrets.EXCHANGEAPI }}
-      TWELVEDATA_API: ${{ secrets.TWELVEDATA_API }}
+      TOKEN:             ${{ secrets.TOKEN }}
+      CHAT_ID:           ${{ secrets.CHAT_ID }}
+      EXCHANGEAPI:       ${{ secrets.EXCHANGEAPI }}
+      TWELVEDATA_API:    ${{ secrets.TWELVEDATA_API }}
 
     steps:
       - name: Checkout
@@ -28,13 +28,11 @@ jobs:
       - name: Install dependencies
         run: pip install -r requirements.txt
 
-      - name: Run script
-        run: python main.py
-
-      - name: Install dependencies
-        run: |
-          pip install -r requirements.txt
-          pip install playwright
+      - name: Install Playwright package
+        run: pip install playwright
 
       - name: Install Playwright browsers
         run: playwright install --with-deps
+
+      - name: Run script
+        run: python main.py
