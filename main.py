@@ -1,13 +1,13 @@
-import datetime, os, re, requests
+# main.py
+
+import datetime, os, re, requests, schedule, time
 from collections import Counter
 from bs4 import BeautifulSoup
 from googletrans import Translator
 
-
-# ✅ 환경 변수
+# 환경 변수
 TOKEN = os.environ['TOKEN']
 CHAT_ID = os.environ['CHAT_ID']
-NEWS_API_KEY = os.environ['NEWSAPI']
 EXCHANGE_KEY = os.environ['EXCHANGEAPI']
 TWELVE_API_KEY = os.environ["TWELVEDATA_API"]
 TELEGRAM_URL = f"https://api.telegram.org/bot{TOKEN}/sendMessage"
@@ -15,8 +15,7 @@ today = datetime.datetime.now().strftime('%Y년 %m월 %d일')
 
 translator = Translator()
 
-
-# ✅ 미국 지수 크롤링 (Investing.com)
+# ✅ 미국 지수 크롤링
 def get_us_indices():
     url = "https://www.investing.com/indices/major-indices"
     headers = {"User-Agent": "Mozilla/5.0"}
@@ -27,23 +26,17 @@ def get_us_indices():
     for row in rows:
         try:
             name = row.select_one("td:nth-child(2)").text.strip()
-            now = float(
-                row.select_one("td:nth-child(3)").text.strip().replace(
-                    ",", ""))
-            prev = float(
-                row.select_one("td:nth-child(4)").text.strip().replace(
-                    ",", ""))
+            now = float(row.select_one("td:nth-child(3)").text.strip().replace(",", ""))
+            prev = float(row.select_one("td:nth-child(4)").text.strip().replace(",", ""))
             diff = now - prev
             rate = (diff / prev) * 100
             icon = "▲" if diff > 0 else "▼" if diff < 0 else "-"
-            results.append(
-                f"{name}: {now:,.2f} {icon}{abs(diff):,.2f} ({rate:+.2f}%)")
+            results.append(f"{name}: {now:,.2f} {icon}{abs(diff):,.2f} ({rate:+.2f}%)")
         except:
             results.append(f"{name}: 데이터 오류")
     return "\n".join(results)
 
-
-# ✅ 환율
+# ✅ 환율 (KRW 포함)
 def get_exchange_rates():
     url = f"https://v6.exchangerate-api.com/v6/{EXCHANGE_KEY}/latest/USD"
     res = requests.get(url).json()
@@ -57,8 +50,7 @@ def get_exchange_rates():
     except:
         return "(환율 정보 없음)"
 
-
-# ✅ 섹터별 ETF
+# ✅ 미국 ETF 섹터별 지수
 def get_sector_etf_changes(api_key):
     etfs = {
         "💻 기술": "XLK",
@@ -69,31 +61,34 @@ def get_sector_etf_changes(api_key):
     }
     result = []
     for name, symbol in etfs.items():
-        url = f"https://api.twelvedata.com/quote?symbol={symbol}&apikey={api_key}"
         try:
+            url = f"https://api.twelvedata.com/quote?symbol={symbol}&apikey={api_key}"
             res = requests.get(url).json()
             price = float(res["close"])
             change = float(res["change"])
             percent = float(res["percent_change"])
             icon = "▲" if change > 0 else "▼" if change < 0 else "-"
-            result.append(
-                f"{name}: {price:.2f} {icon}{abs(change):.2f} ({percent:+.2f}%)"
-            )
+            result.append(f"{name}: {price:.2f} {icon}{abs(change):.2f} ({percent:+.2f}%)")
         except:
             result.append(f"{name}: 정보 없음")
     return "\n".join(result)
 
+# ✅ 네이버 한국 뉴스 (업종별)
+sector_keywords_kr = {
+    "📈 한국증시": ["코스피", "코스닥", "환율", "금리", "무역수지", "외국인 매수", "외환보유액"],
+    "💻 IT·반도체": ["삼성전자", "반도체", "AI", "SK하이닉스", "이차전지", "OLED", "DDR5"],
+    "🚗 자동차·모빌리티": ["현대차", "기아", "전기차", "자율주행", "배터리", "UAM"],
+    "정치이슈": ["이재명", "윤석열", "국회", "특검"]
+}
 
-
-# ✅ 네이버 한국뉴스 크롤링
 def fetch_naver_sector_news(sector_dict):
     headers = {"User-Agent": "Mozilla/5.0"}
     message = ""
     for sector, keywords in sector_dict.items():
         news_items = []
         for kw in keywords:
-            url = f"https://search.naver.com/search.naver?where=news&query={kw}"
             try:
+                url = f"https://search.naver.com/search.naver?where=news&query={kw}"
                 res = requests.get(url, headers=headers, timeout=5)
                 soup = BeautifulSoup(res.text, "html.parser")
                 articles = soup.select("ul.list_news div.news_area a.tit")[:2]
@@ -107,7 +102,7 @@ def fetch_naver_sector_news(sector_dict):
             message += f"{sector}\n" + "\n".join(news_items[:2]) + "\n\n"
     return message or "(관련 뉴스 없음)\n"
 
-# ✅ 네이버 미국뉴스 크롤링
+# ✅ 미국 관련 세계 뉴스 (네이버 검색 기반)
 def fetch_us_world_news():
     url = "https://search.naver.com/search.naver?where=news&query=미국 증시 OR 미국 경제"
     headers = {"User-Agent": "Mozilla/5.0"}
@@ -119,42 +114,28 @@ def fetch_us_world_news():
     except:
         return "(미국 관련 세계 뉴스 없음)"
 
+# ✅ 전체 메시지 작성
+def build_message():
+    msg = f"📈 [{today}] 뉴스 요약 + 시장 지표\n\n"
+    msg += f"📊 미국 주요 지수:\n{get_us_indices()}\n\n"
+    msg += f"💱 환율:\n{get_exchange_rates()}\n\n"
+    msg += f"📉 미국 섹터별 지수 변화:\n{get_sector_etf_changes(TWELVE_API_KEY)}\n\n"
+    msg += f"🇰🇷 한국 증시 뉴스 (업종별):\n{fetch_naver_sector_news(sector_keywords_kr)}"
+    msg += f"🌎 미국 관련 세계 뉴스:\n{fetch_us_world_news()}\n"
+    msg += "\n출처: investing.com / twelvedata.com / exchangerate-api.com / naver.com"
+    return msg
 
-
-# ✅ 메시지 작성 및 전송
-message = f"📈 [{today}] 뉴스 요약 + 시장 지표\n\n"
-message += f"📊 미국 주요 지수:\n{get_us_indices()}\n\n"
-message += f"💱 환율:\n{get_exchange_rates()}\n\n"
-message += f"📉 미국 섹터별 지수 변화:\n{get_sector_etf_changes(TWELVE_API_KEY)}\n\n"
-message += f"🇰🇷 한국 증시 뉴스 (업종별):\n{fetch_naver_sector_news(sector_keywords_kr)}"
-message += f"🌎 미국 관련 세계 뉴스:\n{fetch_us_world_news()}\n"
-
-
-res = requests.post(TELEGRAM_URL, data={"chat_id": CHAT_ID, "text": message})
-print("✅ 응답 코드:", res.status_code)
-print("📨 응답 내용:", res.text)
-
-import schedule
-import time
-
-
+# ✅ 텔레그램 전송
 def send_to_telegram():
-    # 여기에 기존 텔레그램 메시지 생성 + 전송 로직을 통째로 넣으면 됨
-    print("🕖 뉴스 전송 시작")
-    res = requests.post(TELEGRAM_URL,
-                        data={
-                            "chat_id": CHAT_ID,
-                            "text": message
-                        })
+    message = build_message()
+    res = requests.post(TELEGRAM_URL, data={"chat_id": CHAT_ID, "text": message})
     print("✅ 응답 코드:", res.status_code)
     print("📨 응답 내용:", res.text)
 
-
-# ✅ 매일 오전 7시, 오후 3시에 실행되도록 예약
+# ✅ 예약 실행 (Replit 또는 로컬 테스트용)
 schedule.every().day.at("07:00").do(send_to_telegram)
 schedule.every().day.at("15:00").do(send_to_telegram)
 
-# ✅ 계속 실행하면서 시간 체크
 while True:
     schedule.run_pending()
-    time.sleep(30)  # 30초마다 체크
+    time.sleep(30)
