@@ -204,7 +204,7 @@ def send_to_telegram():
         f"📰 미국 증시 주요 기사:\n{fetch_us_market_news_titles()}\n"
     )
     # Playwright로 크롤링한 215 랭킹 뉴스
-    part2 = fetch_media_press_ranking_playwright("215", 10)
+    part2 = fetch_media_press_ranking_fast("215", 10)
 
     for msg in [part1, part2]:
         if len(msg) > 4000:
