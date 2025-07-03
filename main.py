@@ -130,42 +130,23 @@ def fetch_us_market_news_titles():
 # ✅ 네이버 한국 뉴스 (랭킹)
 import re
 
-def fetch_media_press_ranking(press_id="215", count=10):
+def fetch_media_press_rss(press_id="215", count=10):
     """
-    media.naver.com 의 특정 언론사(press_id) 랭킹뉴스 TOP count개를 반환합니다.
+    media.naver.com 의 특정 언론사 press_id 에 대한 RSS 피드에서
+    최신 count개 기사를 가져옵니다.
     """
-    url = f"https://media.naver.com/press/{press_id}/ranking"
-    headers = {"User-Agent": "Mozilla/5.0"}
-    res = requests.get(url, headers=headers)
-    res.encoding = "utf-8"
-    soup = BeautifulSoup(res.text, "html.parser")
+    # 언론사 RSS URL (홈페이지 헤더나 <link> 태그에서 가져오시면 정확)
+    rss_url = f"https://media.naver.com/press/{press_id}/rss"  
+    feed = feedparser.parse(rss_url)
 
-    # li > a 태그들을 가져와서 상위 count개만
-    links = soup.select("ul.list_ranking li a")[:count]
-    if not links:
-        return f"(press/{press_id} 랭킹 뉴스 없음)"
+    if not feed.entries:
+        return f"(press/{press_id} RSS 뉴스 없음)"
 
-    result = f"📌 언론사 {press_id} 랭킹 뉴스 TOP {count}\n"
-    for a in links:
-        raw = a.text.strip()
-        # "1 제목 조회수 2,634" → 번호와 뷰카운트 제거
-        title = re.sub(r'^\d+\s*', '', raw)               # 앞번호 제거
-        title = re.sub(r'조회수.*$', '', title).strip()    # "조회수…" 이후 제거
-
-        href = a["href"]
-        if not href.startswith("http"):
-            # 절대경로가 아니라면 media.naver.com 기준으로 보정
-            href = "https://media.naver.com" + href
-
-        result += f"• {title}\n👉 {href}\n"
-
+    entries = feed.entries[:count]
+    result = f"📌 언론사 {press_id} 최신 뉴스 TOP {count}\n"
+    for e in entries:
+        result += f"• {e.title}\n👉 {e.link}\n"
     return result
-
-
-
-
-
-
 
 
 
@@ -199,7 +180,7 @@ def send_to_telegram():
     )
 
     # 2차: 언론사 215 랭킹 뉴스
-    part2 = fetch_media_press_ranking("215", 10)
+    part2 = fetch_media_press_rss("215", 10)
 
     for msg in [part1, part2]:
         if len(msg) > 4000:
