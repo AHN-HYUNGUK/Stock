@@ -127,43 +127,27 @@ def fetch_us_market_news_titles():
 
 
 # ✅ 네이버 한국 뉴스 (랭킹)
-def fetch_naver_ranking_news():
-    url = "https://news.naver.com/main/ranking/popularDay.naver"
-    headers = {"User-Agent": "Mozilla/5.0"}
-    sections = {
-        "경제": "101",
-        "세계": "104",
-        "정치": "100"
-    }
-    result = ""
-
+def fetch_naver_top10_news():
     try:
+        url = "https://news.naver.com/main/ranking/popularDay.naver"
+        headers = {"User-Agent": "Mozilla/5.0"}
         res = requests.get(url, headers=headers)
-        res.encoding = 'utf-8'  # 혹시 모를 인코딩 문제 방지
+        res.encoding = "utf-8"
         soup = BeautifulSoup(res.text, "html.parser")
 
-        for name, sec_id in sections.items():
-            block = soup.find("div", {"class": "ranking_section", "data-section-id": sec_id})
-            if not block:
-                result += f"📌 {name} 뉴스 없음\n\n"
-                continue
-            articles = block.select("div.rankingnews_box ul li a")[:3]
-            if not articles:
-                result += f"📌 {name} 뉴스 없음\n\n"
-                continue
-            result += f"📌 {name} 뉴스 TOP 3\n"
-            for a in articles:
-                title = a.text.strip()
-                link = a.get("href")
-                if not link.startswith("http"):
-                    link = "https://news.naver.com" + link
-                result += f"• {title}\n👉 {link}\n"
-            result += "\n"
+        # 전체 랭킹 중 최상단 TOP 10 뉴스
+        news_links = soup.select("div.rankingnews_box a")[:10]
+        result = "📌 네이버 랭킹 뉴스 TOP 10\n"
+        
+        for a in news_links:
+            title = a.text.strip()
+            link = a["href"]
+            if not link.startswith("http"):
+                link = "https://news.naver.com" + link
+            result += f"• {title}\n👉 {link}\n"
+        return result
     except Exception as e:
-        result += f"(네이버 랭킹 뉴스 수집 실패: {e})\n"
-
-    return result
-
+        return f"(랭킹 뉴스 수집 실패: {e})"
 
 
 
@@ -175,11 +159,10 @@ def build_message():
     # ✅ GPT 요약 대신 뉴스 제목만 출력
     headlines = fetch_us_market_news_titles()
     message += f"📰 미국 증시 주요 기사:\n{headlines}\n\n"
-
     message += f"📊 미국 주요 지수:\n{get_us_indices()}\n\n"
     message += f"💱 환율:\n{get_exchange_rates()}\n\n"
     message += f"📉 미국 섹터별 지수 변화:\n{get_sector_etf_changes(TWELVE_API_KEY)}\n\n"
-    message += f"📰 네이버 랭킹 뉴스:\n{fetch_naver_ranking_news()}\n"
+    message += f"📰 네이버 랭킹 뉴스:\n{fetch_naver_top10_news()}\n"
     return message
 
 
