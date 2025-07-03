@@ -75,9 +75,8 @@ def get_sector_etf_changes(api_key):
 
 # ✅ 네이버 한국 뉴스 (업종별)
 sector_keywords_kr = {
-    "📈 한국증시": ["코스피", "코스닥", "환율", "금리", "무역수지", "외국인 매수", "외환보유액"],
-    "💻 IT·반도체": ["삼성전자", "반도체", "AI", "SK하이닉스", "이차전지", "OLED", "DDR5"],
-    "🚗 자동차·모빌리티": ["현대차", "기아", "전기차", "자율주행", "배터리", "UAM"],
+    "📈 한국증시": ["코스피", "금리", "환율",  "외환보유액"],
+    "💻 IT·반도체": ["반도체", "AI"],
     "정치이슈": ["이재명", "윤석열", "국회", "특검"]
 }
 
@@ -91,7 +90,7 @@ def fetch_naver_sector_news(sector_dict):
                 url = f"https://search.naver.com/search.naver?where=news&query={kw}"
                 res = requests.get(url, headers=headers, timeout=5)
                 soup = BeautifulSoup(res.text, "html.parser")
-                articles = soup.select("ul.list_news div.news_area a.tit")[:2]
+                articles = soup.select("ul.list_news div.news_area a.tit")[:1]
                 for a in articles:
                     title = a.text.strip()
                     link = a['href']
