@@ -6,12 +6,11 @@ on:
     - cron: '0 21 * * *'
     # 오후 2시 (UTC 기준 → 한국 시간 5시)
     - cron: '0 5 * * *'
-  workflow_dispatch:  # 수동 실행도 가능
+  workflow_dispatch:      # ✅ 수동 실행 허용 ← 이게 없으면 Run 버튼이 안 보임
 
 jobs:
   run-bot:
     runs-on: ubuntu-latest
-
     steps:
       - name: Checkout Repository
         uses: actions/checkout@v3
