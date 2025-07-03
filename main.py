@@ -205,16 +205,15 @@ def send_to_telegram():
         if len(msg) > 4000:
             msg = msg[:3990] + "\n(※ 일부 생략됨)"
 
-        # ✏️ 여기를 수정: res 변수에 할당
+        # POST 요청을 res 변수에 할당
         res = requests.post(TELEGRAM_URL, data={
             "chat_id": CHAT_ID,
             "text": msg
         })
 
-        # 이후에 res.status_code와 res.text를 출력할 수 있습니다.
+        # 요청 결과 출력도 반드시 루프 안
         print("✅ 응답 코드:", res.status_code)
         print("📨 응답 내용:", res.text)
-
 
 
 # ✅ 예약 실행 (Replit 또는 로컬 테스트용)
