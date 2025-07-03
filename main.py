@@ -90,7 +90,7 @@ def fetch_naver_ranking_news():
                 result += f"📌 {name} 뉴스 TOP 3\n"
                 for a in articles:
                     title = a.text.strip()
-                    link = "https://news.naver.com" + a["href"]
+                    link = a["href"]  # 네이버 링크는 a["href"] 자체가 전체 URL임
                     result += f"• {title}\n👉 {link}\n"
                 result += "\n"
             else:
