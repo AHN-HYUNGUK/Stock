@@ -155,28 +155,40 @@ def fetch_us_market_news_titles():
 
 
 # ✅ 다음 한국 뉴스 (랭킹)
-# main.py 어딘가, 기존 fetch_media_press_ranking 위나 아래에 붙여 넣으시면 됩니다.
-def fetch_daum_popular_news(count=10):
-    url = "https://news.daum.net/ranking/popular"
-    headers = {"User-Agent": "Mozilla/5.0"}
-    res = requests.get(url, headers=headers)
-    res.encoding = "utf-8"
-    soup = BeautifulSoup(res.text, "html.parser")
+from playwright.sync_api import sync_playwright
 
-    # ol.list_news2 li 안에 랭킹 뉴스가 들어 있습니다.
-    items = soup.select("ol.list_news2 li")[:count]
+def fetch_media_press_ranking_playwright(press_id="215", count=10):
+    url = f"https://media.naver.com/press/{press_id}/ranking"
+    result = f"📌 언론사 {press_id} 랭킹 뉴스 TOP {count}\n"
+
+    with sync_playwright() as p:
+        browser = p.chromium.launch(args=["--no-sandbox"])
+        page = browser.new_page()
+        page.goto(url)
+        page.wait_for_load_state("networkidle")   # 모든 리소스 로딩 대기
+        # 짧게라도 안정적으로 JS가 돌게 2초 대기
+        page.wait_for_timeout(2000)
+
+        seen = set()
+        items = []
+        for a in page.query_selector_all("a"):
+            href = a.get_attribute("href") or ""
+            text = a.inner_text().strip()
+            if "/article/" in href and text and href not in seen:
+                seen.add(href)
+                # 링크 보정
+                link = href if href.startswith("http") else "https://" + href
+                items.append((text, link))
+            if len(items) >= count:
+                break
+
+        browser.close()
+
     if not items:
-        return "(다음 인기 뉴스 없음)"
+        return f"(press/{press_id} 랭킹 뉴스 없음)"
 
-    result = f"📌 다음 인기 뉴스 TOP {count}\n"
-    for li in items:
-        a = li.select_one("a.link_txt")
-        if not a:
-            continue
-        title = a.get_text(strip=True)
-        link  = a["href"]
+    for title, link in items:
         result += f"• {title}\n👉 {link}\n"
-
     return result
 
 
