@@ -101,7 +101,7 @@ def fetch_media_press_ranking_playwright(press_id="215", count=10):
     return result if anchors else f"(press/{press_id} 랭킹 뉴스 없음)"
 
 
- def build_message():
+def build_message():
     return (
         f"📈 [{today}] 뉴스 요약 + 시장 지표\n\n"
         f"📊 미국 주요 지수:\n{get_us_indices()}\n\n"
