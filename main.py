@@ -102,36 +102,29 @@ def fetch_media_press_ranking_playwright(press_id="215", count=10):
 
 
  def build_message():
-     return (
-         f"📈 [{today}] 뉴스 요약 + 시장 지표\n\n"
-         f"📊 미국 주요 지수:\n{get_us_indices()}\n\n"
-         f"💱 환율:\n{get_exchange_rates()}\n\n"
-         f"📉 미국 섹터별 지수 변화:\n{get_sector_etf_changes(TWELVE_API_KEY)}\n\n"
-         f"📰 미국 증시 주요 기사:\n{fetch_us_market_news_titles()}\n\n"
--        # (랭킹 누락)
-+        # 언론사 215 랭킹 TOP10 추가
-+        f"{fetch_media_press_ranking_playwright('215',10)}"
-     )
+    return (
+        f"📈 [{today}] 뉴스 요약 + 시장 지표\n\n"
+        f"📊 미국 주요 지수:\n{get_us_indices()}\n\n"
+        f"💱 환율:\n{get_exchange_rates()}\n\n"
+        f"📉 미국 섹터별 지수 변화:\n{get_sector_etf_changes(TWELVE_API_KEY)}\n\n"
+        f"📰 미국 증시 주요 기사:\n{fetch_us_market_news_titles()}\n\n"
+        f"{fetch_media_press_ranking_playwright('215', 10)}"
+    )
 
 
+def send_to_telegram():
+    part1 = build_message()
+    part2 = fetch_media_press_ranking_playwright("215", 10)
 
- def send_to_telegram():
--    msg = build_message()
--    if len(msg)>4000:
--        msg = msg[:3990] + "\n(※ 일부 생략됨)"
--    r = requests.post(TELEGRAM_URL, data={"chat_id":CHAT_ID,"text":msg})
--    print("✅ 응답 코드:", r.status_code, "| 📨", r.text)
-+    # 1) 시장 지표 + 미국 증시 뉴스
-+    part1 = build_message()
-+
-+    # 2) 언론사 215 랭킹 TOP10
-+    part2 = fetch_media_press_ranking_playwright("215", 10)
-+
-+    for msg in [part1, part2]:
-+        if len(msg) > 4000:
-+            msg = msg[:3990] + "\n(※ 일부 생략됨)"
-+        r = requests.post(TELEGRAM_URL, data={"chat_id":CHAT_ID,"text":msg})
-+        print("✅ 응답 코드:", r.status_code, "| 📨", r.text)
+    for msg in [part1, part2]:
+        if len(msg) > 4000:
+            msg = msg[:3990] + "\n(※ 일부 생략됨)"
+        res = requests.post(
+            TELEGRAM_URL,
+            data={"chat_id": CHAT_ID, "text": msg}
+        )
+        print("✅ 응답 코드:", res.status_code, "| 📨", res.text)
+
 
 
 # 매일 07:00, 15:00 KST 실행
