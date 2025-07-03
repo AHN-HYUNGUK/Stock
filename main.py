@@ -155,27 +155,36 @@ def fetch_us_market_news_titles():
 
 
 # ✅ 다음 한국 뉴스 (랭킹)
-def fetch_daum_popular_news(count=10):
-    url = "https://news.daum.net/ranking/popular"
-    headers = {"User-Agent": "Mozilla/5.0"}
-    res = requests.get(url, headers=headers)
-    res.encoding = "utf-8"
-    soup = BeautifulSoup(res.text, "html.parser")
+from playwright.sync_api import sync_playwright
 
-    # Daum 랭킹은 #cSub > div > ul > li 에 들어 있습니다
-    items = soup.select("#cSub > div > ul > li")[:count]
-    if not items:
-        return "(다음 인기 뉴스 없음)"
+def fetch_media_press_ranking_playwright(press_id="215", count=10):
+    url = f"https://media.naver.com/press/{press_id}/ranking"
+    result = f"📌 언론사 {press_id} 랭킹 뉴스 TOP {count}\n"
 
-    result = f"📌 다음 인기 뉴스 TOP {count}\n"
-    for li in items:
-        a = li.select_one("div.item_issue > div > strong > a")
-        if not a:
-            continue
-        title = a.get_text(strip=True)
-        link  = a["href"]
-        result += f"• {title}\n👉 {link}\n"
+    with sync_playwright() as p:
+        browser = p.chromium.launch(args=["--no-sandbox"])
+        page = browser.new_page()
+        page.goto(url)
+        page.wait_for_load_state("networkidle")
+        page.wait_for_timeout(2000)
 
+        items = page.query_selector_all("ul.list_ranking li")[:count]
+        for item in items:
+            a   = item.query_selector("a")
+            img = a.query_selector("img")
+            if img and img.get_attribute("alt"):
+                title = img.get_attribute("alt").strip()
+            else:
+                raw   = a.inner_text().strip()
+                title = raw.split("조회수")[0].strip()
+
+            href = a.get_attribute("href") or ""
+            if not href.startswith("http"):
+                href = "https://media.naver.com" + href
+
+            result += f"• {title}\n👉 {href}\n"
+
+        browser.close()
     return result
 
 
@@ -207,7 +216,7 @@ def send_to_telegram():
         f"📰 미국 증시 주요 기사:\n{fetch_us_market_news_titles()}\n"
     )
   
-    part2 = fetch_daum_popular_news(10)
+    part2 = fetch_media_press_ranking_playwright("215", 10)
 
     for msg in [part1, part2]:
         if len(msg) > 4000:
