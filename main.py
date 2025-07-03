@@ -6,6 +6,7 @@ import re
 import requests
 import schedule
 import time
+import feedparser
 import openai              # ← os 다음에 import openai
 from collections import Counter
 from bs4 import BeautifulSoup
@@ -127,39 +128,31 @@ def fetch_us_market_news_titles():
 
 
 # ✅ 네이버 한국 뉴스 (랭킹)
+# requirements.txt 에 아래 한 줄 추가
+feedparser
+
+# main.py 에 추가할 함수
+import feedparser
+
 def fetch_naver_top10_news():
-    try:
-        url = "https://news.naver.com/main/ranking/popularDay.naver?rankingType=popular_all"
-        headers = {"User-Agent": "Mozilla/5.0"}
-        res = requests.get(url, headers=headers)
-        res.encoding = "utf-8"
-        soup = BeautifulSoup(res.text, "html.parser")
+    """
+    네이버 전체 인기 뉴스 TOP 10을 RSS로 파싱해 반환합니다.
+    """
+    # 전체 인기 뉴스 RSS URL (popularAll 기준)
+    rss_url = "https://news.naver.com/main/ranking/popular_all.rss"
+    feed = feedparser.parse(rss_url)
 
-        items = soup.select("div.rankingnews_box ul li")[:10]
-        if not items:
-            return "(랭킹 뉴스 없음)"
+    # 피드가 제대로 로드되지 않으면 예외 처리
+    if not feed.entries:
+        return "(랭킹 뉴스 없음)"
 
-        result = "📌 네이버 랭킹 뉴스 TOP 10 (전체)\n"
-        for item in items:
-            a = item.select_one("a")
-            img = item.select_one("img")
+    # 상위 10개 엔트리만
+    entries = feed.entries[:10]
+    result = "📌 네이버 랭킹 뉴스 TOP 10 (전체)\n"
+    for e in entries:
+        result += f"• {e.title}\n👉 {e.link}\n"
+    return result
 
-            # img.alt 우선, 없으면 a.text
-            if img and img.has_attr("alt"):
-                title = img["alt"].strip()
-            else:
-                title = a.text.strip()
-
-            href = a["href"]
-            if not href.startswith("http"):
-                href = "https://news.naver.com" + href
-
-            result += f"• {title}\n👉 {href}\n"
-
-        return result
-
-    except Exception as e:
-        return f"(랭킹 뉴스 수집 실패: {e})"
 
 
 
