@@ -175,20 +175,28 @@ def build_message():
 
 # ✅ 텔레그램 전송 함수 (안정화 적용 완료)
 def send_to_telegram():
-    message = build_message()
+    # 1차 메시지: 지표 + 미국 뉴스
+    part1 = (
+        f"📈 [{today}] 뉴스 요약 + 시장 지표\n\n"
+        f"📊 미국 주요 지수:\n{get_us_indices()}\n\n"
+        f"💱 환율:\n{get_exchange_rates()}\n\n"
+        f"📉 미국 섹터별 지수 변화:\n{get_sector_etf_changes(TWELVE_API_KEY)}\n\n"
+        f"📰 미국 증시 주요 기사:\n{fetch_us_market_news_titles()}\n"
+    )
 
-    # ✅ 해결 방법 1: 길이 제한 적용 (최대 4096자, 여유 있게 3990자)
-    if len(message) > 4000:
-        message = message[:3990] + "\n(※ 메시지 길이 초과로 일부 생략됨)"
+    # 2차 메시지: 네이버 뉴스만 따로
+    part2 = f"📰 네이버 랭킹 뉴스:\n{fetch_naver_top10_news()}"
 
-    # ✅ 해결 방법 2: parse_mode 제거
-    res = requests.post(TELEGRAM_URL, data={
-        "chat_id": CHAT_ID,
-        "text": message
-    })
+    for msg in [part1, part2]:
+        if len(msg) > 4000:
+            msg = msg[:3990] + "\n(※ 일부 생략됨)"
+        res = requests.post(TELEGRAM_URL, data={
+            "chat_id": CHAT_ID,
+            "text": msg
+        })
+        print("✅ 응답 코드:", res.status_code)
+        print("📨 응답 내용:", res.text)
 
-    print("✅ 응답 코드:", res.status_code)
-    print("📨 응답 내용:", res.text)
 
 
 # ✅ 예약 실행 (Replit 또는 로컬 테스트용)
