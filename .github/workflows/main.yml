@@ -1,36 +1,32 @@
-name: Auto Telegram Bot
+name: US Stock News
 
 on:
   schedule:
-    # 오전 6시 (UTC 기준 → 한국 시간 15시)
-    - cron: '0 21 * * *'
-    # 오후 2시 (UTC 기준 → 한국 시간 5시)
-    - cron: '0 5 * * *'
-  workflow_dispatch:      # ✅ 수동 실행 허용 ← 이게 없으면 Run 버튼이 안 보임
+    - cron: "0 21 * * *"  # 매일 오전 6시 자동 실행
+    - cron: "0 05 * * *"  # 매일 오후 3시 자동 실행
+  workflow_dispatch:      # ✅ 수동 실행 허용
 
 jobs:
-  run-bot:
+  run-news-bot:
     runs-on: ubuntu-latest
+    env:
+      OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
+      TOKEN: ${{ secrets.TOKEN }}
+      CHAT_ID: ${{ secrets.CHAT_ID }}
+      EXCHANGEAPI: ${{ secrets.EXCHANGEAPI }}
+      TWELVEDATA_API: ${{ secrets.TWELVEDATA_API }}
+
     steps:
-      - name: Checkout Repository
-        uses: actions/checkout@v3
+      - name: Checkout
+        uses: actions/checkout@v4
 
       - name: Set up Python
-        uses: actions/setup-python@v4
+        uses: actions/setup-python@v5
         with:
-          python-version: '3.10'
+          python-version: "3.10"
 
-      - name: Install Dependencies
-        run: |
-          python -m pip install --upgrade pip
-          pip install -r requirements.txt
+      - name: Install dependencies
+        run: pip install -r requirements.txt
 
-      - name: Run bot
-        env:
-         OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}  # ✅ 여기에 추가
-          TOKEN: ${{ secrets.TOKEN }}
-          CHAT_ID: ${{ secrets.CHAT_ID }}
-          NEWSAPI: ${{ secrets.NEWSAPI }}
-          EXCHANGEAPI: ${{ secrets.EXCHANGEAPI }}
-          TWELVEDATA_API: ${{ secrets.TWELVEDATA_API }}
+      - name: Run script
         run: python main.py
