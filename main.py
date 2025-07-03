@@ -130,26 +130,36 @@ def fetch_us_market_news_titles():
 
 
 # ✅ 다음 한국 뉴스 (랭킹)
-import xml.etree.ElementTree as ET
+from playwright.sync_api import sync_playwright
 
-def fetch_daum_popular_news(count=10):
-    """
-    Daum 인기 뉴스 TOP count개를 RSS로 가져옵니다.
-    """
-    rss_url = "https://rss.daum.net/rss/today/popular.xml"
-    res = requests.get(rss_url)
-    res.encoding = "utf-8"
-    # XML 파싱
-    root = ET.fromstring(res.text)
-    items = root.findall(".//item")[:count]
-    if not items:
-        return "(다음 랭킹 뉴스 없음)"
+def fetch_media_press_ranking_playwright(press_id="215", count=10):
+    url = f"https://media.naver.com/press/{press_id}/ranking"
+    result = f"📌 언론사 {press_id} 랭킹 뉴스 TOP {count}\n"
 
-    result = f"📌 다음 뉴스 랭킹 TOP {count}\n"
-    for item in items:
-        title = item.find("title").text.strip()
-        link  = item.find("link").text.strip()
-        result += f"• {title}\n👉 {link}\n"
+    with sync_playwright() as p:
+        browser = p.chromium.launch(args=["--no-sandbox"])
+        page = browser.new_page()
+        page.goto(url)
+        # JS 렌더링 후에 ul.list_ranking li 요소들이 로드될 때까지 대기
+        page.wait_for_selector("ul.list_ranking li")
+
+        items = page.query_selector_all("ul.list_ranking li")[:count]
+        for item in items:
+            a = item.query_selector("a")
+            # <img alt="제목"> 구조면 alt 속성, 아니면 텍스트를 fallback
+            img = item.query_selector("img")
+            if img and img.get_attribute("alt"):
+                title = img.get_attribute("alt").strip()
+            else:
+                title = a.inner_text().strip()
+
+            href = a.get_attribute("href")
+            if not href.startswith("http"):
+                href = "https://media.naver.com" + href
+
+            result += f"• {title}\n👉 {href}\n"
+
+        browser.close()
     return result
 
 
@@ -180,17 +190,19 @@ def send_to_telegram():
         f"📉 미국 섹터별 지수 변화:\n{get_sector_etf_changes(TWELVE_API_KEY)}\n\n"
         f"📰 미국 증시 주요 기사:\n{fetch_us_market_news_titles()}\n"
     )
-    part2 = fetch_daum_popular_news(10)
+    # Playwright로 크롤링한 215 랭킹 뉴스
+    part2 = fetch_media_press_ranking_playwright("215", 10)
 
     for msg in [part1, part2]:
         if len(msg) > 4000:
-            msg = msg[:3990] + "\n(※ 생략됨)"
+            msg = msg[:3990] + "\n(※ 일부 생략됨)"
         res = requests.post(TELEGRAM_URL, data={
             "chat_id": CHAT_ID,
             "text": msg
         })
         print("✅ 응답 코드:", res.status_code)
         print("📨 응답 내용:", res.text)
+
 
 
 # ✅ 예약 실행 (Replit 또는 로컬 테스트용)
