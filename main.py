@@ -11,6 +11,7 @@ import openai              # ← os 다음에 import openai
 from collections import Counter
 from bs4 import BeautifulSoup
 from googletrans import Translator
+from dotenv import load_dotenv
 
 
 # 환경 변수
@@ -20,6 +21,8 @@ EXCHANGE_KEY = os.environ['EXCHANGEAPI']
 TWELVE_API_KEY = os.environ["TWELVEDATA_API"]
 TELEGRAM_URL = f"https://api.telegram.org/bot{TOKEN}/sendMessage"
 today = datetime.datetime.now().strftime('%Y년 %m월 %d일')
+NAVER_CLIENT_ID = os.getenv("NAVER_CLIENT_ID")
+NAVER_CLIENT_SECRET = os.getenv("NAVER_CLIENT_SECRET")
 
 translator = Translator()
 
