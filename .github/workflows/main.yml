@@ -28,6 +28,7 @@ jobs:
 
       - name: Run bot
         env:
+         OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}  # ✅ 여기에 추가
           TOKEN: ${{ secrets.TOKEN }}
           CHAT_ID: ${{ secrets.CHAT_ID }}
           NEWSAPI: ${{ secrets.NEWSAPI }}
