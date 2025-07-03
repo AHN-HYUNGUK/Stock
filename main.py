@@ -204,11 +204,14 @@ def send_to_telegram():
     for msg in [part1, part2]:
         if len(msg) > 4000:
             msg = msg[:3990] + "\n(※ 일부 생략됨)"
-        requests.post(TELEGRAM_URL, data={
+
+        # ✏️ 여기를 수정: res 변수에 할당
+        res = requests.post(TELEGRAM_URL, data={
             "chat_id": CHAT_ID,
             "text": msg
         })
 
+        # 이후에 res.status_code와 res.text를 출력할 수 있습니다.
         print("✅ 응답 코드:", res.status_code)
         print("📨 응답 내용:", res.text)
 
