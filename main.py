@@ -84,105 +84,6 @@ def get_sector_etf_changes(api_key):
     return "\n".join(result)
 
 
-# ✅ 기사 요약
-def get_article_text(url):
-    try:
-        res = requests.get(url, headers={"User-Agent": "Mozilla/5.0"})
-        soup = BeautifulSoup(res.text, "html.parser")
-        paragraphs = soup.find_all('p')
-        text = "\n".join([p.text for p in paragraphs])
-        return text.strip()
-    except:
-        return "(본문 수집 실패)"
-
-
-def summarize_text(text, max_sentences=3):
-    sentences = re.split(r'(?<=[.?!])\s+', text)
-    if len(sentences) <= max_sentences:
-        return text
-    words = re.findall(r'\w+', text.lower())
-    freq = Counter(words)
-    ranked = sorted(sentences,
-                    key=lambda s: sum(freq[w]
-                                      for w in re.findall(r'\w+', s.lower())),
-                    reverse=True)
-    return " ".join(ranked[:max_sentences])
-
-
-def get_translated_summary(url):
-    text = get_article_text(url)
-    if text.startswith("(본문 수집 실패)"):
-        return text
-    summary_en = summarize_text(text)
-    try:
-        return translator.translate(summary_en, src='en', dest='ko').text
-    except:
-        return "(번역 실패)"
-
-
-# ✅ 뉴스 수집
-def fetch_news(keyword, lang="en"):
-    from_date = (datetime.datetime.now() -
-                 datetime.timedelta(days=2)).strftime("%Y-%m-%d")
-    to_date = datetime.datetime.now().strftime("%Y-%m-%d")
-    url = (f"https://newsapi.org/v2/everything?"
-           f"q={keyword}&language={lang}&sortBy=publishedAt&pageSize=5"
-           f"&from={from_date}&to={to_date}&apiKey={NEWS_API_KEY}")
-    return requests.get(url).json()
-
-
-def get_filtered_articles(articles):
-    return articles[:2]  # 필터 제거 (신뢰 언론만 제한하지 않음)
-
-
-# ✅ 업종별 뉴스 분류
-sector_keywords_en = {
-    "📈 시장전반": [
-        "stock market", "Dow", "Nasdaq", "S&P", "Fed", "inflation",
-        "interest rate", "bond yields", "rate hike", "treasury", "US economy",
-        "economy news", "market news", "stock news", "JP Morgan", "goldman",
-        "wall street", "powell", "yellen"
-    ],
-    "💻 기술": [
-        "technology", "semiconductor", "AI", "Apple", "Nvidia", "Microsoft",
-        "Google", "Tesla", "big tech", "tech stocks", "tech sector",
-        "tech news", "tech trends", "IONQ", "Palantir"
-    ],
-    "🏦 금융": [
-        "finance", "bank", "JP Morgan", "Goldman Sachs", "credit",
-        "earnings report", "loan", "insurance", "financial news"
-    ],
-    "국제이슈":
-    ["tramp", "china", "iran", "ukraine", "EU", "NATO", "war", "nuclear"]
-}
-
-sector_keywords_kr = {
-    "📈 한국증시": ["코스피", "코스닥", "환율", "금리", "무역수지", "외국인 매수", "외환보유액"],
-    "💻 IT·반도체": ["삼성전자", "반도체", "AI", "SK하이닉스", "이차전지", "OLED", "DDR5", "AI"],
-    "🚗 자동차·모빌리티": ["현대차", "기아", "전기차", "자율주행", "배터리", "UAM", "친환경차"],
-    "정치이슈": ["이재명", "윤석열", "국회", "특검"]
-}
-
-
-def fetch_sector_news(sector_dict, lang="en"):
-    message = ""
-    for sector, keywords in sector_dict.items():
-        articles = []
-        for kw in keywords:
-            res = fetch_news(kw, lang)
-            if res.get("status") == "ok":
-                articles += get_filtered_articles(res["articles"])
-        unique = {a["title"]: a for a in articles}.values()
-        if unique:
-            message += f"{sector}\n"
-            for a in list(unique)[:1]:
-                url = a["url"]
-                summary = get_translated_summary(
-                    url) if lang == "en" else a["title"]
-                message += f"• {summary}\n👉 {url}\n"
-            message += "\n"
-    return message or "(관련 뉴스 없음)\n"
-
 
 # ✅ 네이버 한국뉴스 크롤링
 def fetch_naver_sector_news(sector_dict):
@@ -225,8 +126,6 @@ message = f"📈 [{today}] 뉴스 요약 + 시장 지표\n\n"
 message += f"📊 미국 주요 지수:\n{get_us_indices()}\n\n"
 message += f"💱 환율:\n{get_exchange_rates()}\n\n"
 message += f"📉 미국 섹터별 지수 변화:\n{get_sector_etf_changes(TWELVE_API_KEY)}\n\n"
-message += f"🇺🇸 미국 증시 뉴스 (업종별):\n{fetch_sector_news(sector_keywords_en, 'en')}"
-message += f"🇰🇷 한국 증시 뉴스 (업종별):\n{fetch_sector_news(sector_keywords_kr, 'ko')}"
 message += f"🇰🇷 한국 증시 뉴스 (업종별):\n{fetch_naver_sector_news(sector_keywords_kr)}"
 message += f"🌎 미국 관련 세계 뉴스:\n{fetch_us_world_news()}\n"
 
