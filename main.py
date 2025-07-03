@@ -75,32 +75,41 @@ def get_sector_etf_changes(api_key):
 
 # ✅ 네이버 한국 뉴스 (랭킹)
 def fetch_naver_ranking_news():
-    base_url = "https://news.naver.com/main/ranking/popularDay.naver"
+    url = "https://news.naver.com/main/ranking/popularDay.naver"
     headers = {"User-Agent": "Mozilla/5.0"}
-    sections = {"경제": "101", "세계": "104", "정치": "100"}
+    sections = {
+        "경제": "101",
+        "세계": "104",
+        "정치": "100"
+    }
     result = ""
 
-    for name, sec_id in sections.items():
-        url = f"{base_url}?sectionId={sec_id}"
-        try:
-            res = requests.get(url, headers=headers, timeout=5)
-            soup = BeautifulSoup(res.text, "html.parser")
-            articles = soup.select("ul.rankingnews_list > li > div > a")[:3]
-            if articles:
-                result += f"📌 {name} 뉴스 TOP 3\n"
-                for a in articles:
-                    title = a.text.strip()
-                    link = a.get("href")
-                    # 링크가 절대주소가 아니면 앞에 붙여줌
-                    if link and not link.startswith("http"):
-                        link = "https://news.naver.com" + link
-                    result += f"• {title}\n👉 {link}\n"
-                result += "\n"
-            else:
-                result += f"({name} 뉴스 없음)\n"
-        except:
-            result += f"({name} 뉴스 수집 실패)\n"
-    return result or "(랭킹 뉴스 없음)"
+    try:
+        res = requests.get(url, headers=headers)
+        soup = BeautifulSoup(res.text, "html.parser")
+
+        for name, sec_id in sections.items():
+            block = soup.select_one(f"div.ranking_section[data-section-id='{sec_id}']")
+            if not block:
+                result += f"📌 {name} 뉴스 없음\n\n"
+                continue
+            articles = block.select("ul.rankingnews_list > li > div > a")[:3]
+            if not articles:
+                result += f"📌 {name} 뉴스 없음\n\n"
+                continue
+            result += f"📌 {name} 뉴스 TOP 3\n"
+            for a in articles:
+                title = a.text.strip()
+                link = a.get("href")
+                if not link.startswith("http"):
+                    link = "https://news.naver.com" + link
+                result += f"• {title}\n👉 {link}\n"
+            result += "\n"
+    except:
+        result += "(네이버 랭킹 뉴스 수집 실패)\n"
+
+    return result
+
 
 
 
