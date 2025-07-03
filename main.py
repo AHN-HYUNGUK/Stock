@@ -135,6 +135,6 @@ def send_to_telegram():
 schedule.every().day.at("07:00").do(send_to_telegram)
 schedule.every().day.at("15:00").do(send_to_telegram)
 
-while True:
-    schedule.run_pending()
-    time.sleep(30)
+# ✅ main.py 끝부분만 이렇게
+if __name__ == "__main__":
+    send_to_telegram()
