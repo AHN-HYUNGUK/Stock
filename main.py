@@ -191,8 +191,8 @@ def send_to_telegram():
         f"📰 미국 증시 주요 기사:\n{fetch_us_market_news_titles()}\n"
     )
 
-    # 2차 메시지: 네이버 뉴스만 따로
-    part2 = f"📰 네이버 랭킹 뉴스:\n{fetch_naver_top10_news()}"
+    # 2차 메시지: 언론사 215 랭킹 뉴스
+    part2 = f"📰 언론사 215 랭킹 뉴스 TOP 10:\n{fetch_media_press_ranking('215', 10)}"
 
     for msg in [part1, part2]:
         if len(msg) > 4000:
