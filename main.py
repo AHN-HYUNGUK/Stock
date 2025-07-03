@@ -158,10 +158,10 @@ def build_message():
     message = f"📈 [{today}] 뉴스 요약 + 시장 지표\n\n"
     # ✅ GPT 요약 대신 뉴스 제목만 출력
     headlines = fetch_us_market_news_titles()
-    message += f"📰 미국 증시 주요 기사:\n{headlines}\n\n"
     message += f"📊 미국 주요 지수:\n{get_us_indices()}\n\n"
     message += f"💱 환율:\n{get_exchange_rates()}\n\n"
     message += f"📉 미국 섹터별 지수 변화:\n{get_sector_etf_changes(TWELVE_API_KEY)}\n\n"
+    message += f"📰 미국 증시 주요 기사:\n{headlines}\n\n"
     message += f"📰 네이버 랭킹 뉴스:\n{fetch_naver_top10_news()}\n"
     return message
 
