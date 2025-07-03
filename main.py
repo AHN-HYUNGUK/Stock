@@ -97,7 +97,7 @@ def fetch_us_market_news_titles():
         return "❗ 뉴스 수집 실패"
 
 # ✅ GPT-4o mini 요약
-def summarize_news_with_gpt(news_titles):
+    def summarize_news_with_gpt(news_titles):
     key = os.getenv("OPENAI_API_KEY")
     if not key:
         return "(GPT 요약 실패: API 키 없음)"
@@ -165,10 +165,10 @@ def fetch_naver_ranking_news():
 # ✅ 전체 메시지 작성
 def build_message():
     message = f"📈 [{today}] 뉴스 요약 + 시장 지표\n\n"
-    # ✅ GPT 기반 미국 뉴스 요약
+    # ✅ GPT 요약 대신 뉴스 제목만 출력
     headlines = fetch_us_market_news_titles()
-    gpt_summary = summarize_news_with_gpt(headlines)
-    message += f"🧠 미국 증시 뉴스 요약:\n{gpt_summary}\n\n"
+    message += f"📰 미국 증시 주요 기사:\n{headlines}\n\n"
+
     message += f"📊 미국 주요 지수:\n{get_us_indices()}\n\n"
     message += f"💱 환율:\n{get_exchange_rates()}\n\n"
     message += f"📉 미국 섹터별 지수 변화:\n{get_sector_etf_changes(TWELVE_API_KEY)}\n\n"
