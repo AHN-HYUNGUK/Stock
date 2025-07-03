@@ -83,19 +83,21 @@ def get_sector_etf_changes(api_key):
 # ✅ 미국 증시 뉴스 수집 (Investopedia 기준)
 def fetch_us_market_news_titles():
     try:
-        url = "https://www.investopedia.com/markets-news-4427704"
-        headers = {"User-Agent": "Mozilla/5.0"}
+        url = "https://www.marketwatch.com/latest-news?mod=top_nav"
+        headers = {
+            "User-Agent": "Mozilla/5.0"
+        }
         res = requests.get(url, headers=headers)
         soup = BeautifulSoup(res.text, "html.parser")
-
-        articles = soup.select("a[data-analytics-link='article']")[:3]
+        
+        articles = soup.select("div.article__content a")[:3]
         results = []
 
-        for tag in articles:
-            title = tag.get_text(strip=True)
-            link = tag["href"]
+        for a in articles:
+            title = a.get_text(strip=True)
+            link = a.get("href")
             if not link.startswith("http"):
-                link = "https://www.investopedia.com" + link
+                link = "https://www.marketwatch.com" + link
             results.append(f"• {title}\n👉 {link}")
         
         return "\n".join(results) if results else "(기사 없음)"
