@@ -130,26 +130,28 @@ def fetch_us_market_news_titles():
 
 
 # ✅ 다음 한국 뉴스 (랭킹)
-def fetch_daum_popular_news(count=10):
-    url = "https://news.daum.net/ranking/popular"
-    headers = {"User-Agent": "Mozilla/5.0"}
-    res = requests.get(url, headers=headers)
-    res.encoding = "utf-8"
-    soup = BeautifulSoup(res.text, "html.parser")
+import xml.etree.ElementTree as ET
 
-    # ▶ ul.list_news2 아래 li
-    items = soup.select("ul.list_news2 li")[:count]
+def fetch_daum_popular_news(count=10):
+    """
+    Daum 인기 뉴스 TOP count개를 RSS로 가져옵니다.
+    """
+    rss_url = "https://rss.daum.net/rss/today/popular.xml"
+    res = requests.get(rss_url)
+    res.encoding = "utf-8"
+    # XML 파싱
+    root = ET.fromstring(res.text)
+    items = root.findall(".//item")[:count]
     if not items:
         return "(다음 랭킹 뉴스 없음)"
 
     result = f"📌 다음 뉴스 랭킹 TOP {count}\n"
     for item in items:
-        a = item.select_one("a.link_txt")
-        title = a.get_text(strip=True)
-        link = a["href"]
+        title = item.find("title").text.strip()
+        link  = item.find("link").text.strip()
         result += f"• {title}\n👉 {link}\n"
-
     return result
+
 
 
 
