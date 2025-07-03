@@ -136,7 +136,7 @@ def fetch_naver_top10_news():
         soup = BeautifulSoup(res.text, "html.parser")
 
         # 각 랭킹 박스에서 a.news_tit 태그 추출
-        links = soup.select("a.rankingnews_link")[:10]
+        links = soup.select("ul.rankingnews_list a")[:10]
         result = "📌 네이버 랭킹 뉴스 TOP 10\n"
 
         for a in links:
