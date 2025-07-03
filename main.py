@@ -130,38 +130,48 @@ def fetch_us_market_news_titles():
 
 
 # ✅ 다음 한국 뉴스 (랭킹)
-from playwright.sync_api import sync_playwright
+import re, json, requests
+from bs4 import BeautifulSoup
 
-def fetch_media_press_ranking_playwright(press_id="215", count=10):
+def fetch_media_press_ranking_fast(press_id="215", count=10):
     url = f"https://media.naver.com/press/{press_id}/ranking"
+    headers = {"User-Agent": "Mozilla/5.0"}
+    res = requests.get(url, headers=headers)
+    res.encoding = "utf-8"
+
+    # 1) __NEXT_DATA__ 스크립트에서 JSON 문자열 추출
+    m = re.search(
+        r'<script id="__NEXT_DATA__" type="application/json">(.+?)</script>',
+        res.text,
+        re.S
+    )
+    if not m:
+        return "(랭킹 데이터 없음)"
+
+    data = json.loads(m.group(1))
+    # 2) JSON 구조를 따라 랭킹 리스트 꺼내기
+    #    (Next.js pageProps 아래에 들어있는 구조를 확인하세요)
+    ranking_list = (
+        data
+        .get("props", {})
+        .get("pageProps", {})
+        .get("ranking", {})
+        .get("list", [])
+    )
+
+    if not ranking_list:
+        return "(랭킹 뉴스 없음)"
+
+    # 3) 상위 count개만
+    items = ranking_list[:count]
     result = f"📌 언론사 {press_id} 랭킹 뉴스 TOP {count}\n"
-
-    with sync_playwright() as p:
-        browser = p.chromium.launch(args=["--no-sandbox"])
-        page = browser.new_page()
-        page.goto(url)
-        page.wait_for_load_state("networkidle")
-        page.wait_for_timeout(2000)
-
-        # 실제 랭킹 항목 li를 가져옵니다.
-        items = page.query_selector_all("ul.list_ranking li")[:count]
-        for item in items:
-            a = item.query_selector("a")
-            img = a.query_selector("img")
-            if img and img.get_attribute("alt"):
-                title = img.get_attribute("alt").strip()
-            else:
-                # 혹시 alt가 없으면, '조회수' 뒤를 잘라냅니다.
-                raw = a.inner_text().strip()
-                title = raw.split("조회수")[0].strip()
-
-            href = a.get_attribute("href") or ""
-            if not href.startswith("http"):
-                href = "https://media.naver.com" + href
-
-            result += f"• {title}\n👉 {href}\n"
-
-        browser.close()
+    for it in items:
+        title = it.get("title", "").strip()
+        link  = it.get("link", "")
+        # link가 "/article/215/000..." 형태라면 절대경로 보정
+        if link.startswith("/"):
+            link = "https://n.news.naver.com" + link
+        result += f"• {title}\n👉 {link}\n"
 
     return result
 
