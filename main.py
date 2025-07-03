@@ -132,16 +132,17 @@ def fetch_naver_top10_news():
         url = "https://news.naver.com/main/ranking/popularDay.naver"
         headers = {"User-Agent": "Mozilla/5.0"}
         res = requests.get(url, headers=headers)
-        res.encoding = "utf-8"  # ✅ 강제 인코딩 설정
+        res.encoding = "utf-8"
         soup = BeautifulSoup(res.text, "html.parser")
 
-        # 전체 랭킹에서 주요 기사 a 태그 수집
-        news_links = soup.select("div.rankingnews_box a")[:10]
+        # 모든 랭킹 영역에서 기사 제목 추출
+        news_items = soup.select("div.rankingnews_box ul.ranking_list li")[:10]
         result = "📌 네이버 랭킹 뉴스 TOP 10\n"
 
-        for a in news_links:
-            title = a.text.strip()  # ✅ .get("title") 대신 text 사용
-            link = a["href"]
+        for item in news_items:
+            a_tag = item.select_one("a")
+            title = a_tag.text.strip()
+            link = a_tag["href"]
             if not link.startswith("http"):
                 link = "https://news.naver.com" + link
             result += f"• {title}\n👉 {link}\n"
@@ -149,6 +150,7 @@ def fetch_naver_top10_news():
         return result
     except Exception as e:
         return f"(랭킹 뉴스 수집 실패: {e})"
+
 
 
 
