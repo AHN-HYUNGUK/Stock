@@ -189,7 +189,7 @@ def build_message():
 
 # ✅ 텔레그램 전송 함수 (안정화 적용 완료)
 def send_to_telegram():
-    # 1차 메시지: 지표 + 미국 뉴스
+    # 1차: 지표 + 미국 뉴스
     part1 = (
         f"📈 [{today}] 뉴스 요약 + 시장 지표\n\n"
         f"📊 미국 주요 지수:\n{get_us_indices()}\n\n"
@@ -198,16 +198,17 @@ def send_to_telegram():
         f"📰 미국 증시 주요 기사:\n{fetch_us_market_news_titles()}\n"
     )
 
-    # 2차 메시지: 언론사 215 랭킹 뉴스
-    part2 = f"📰 언론사 215 랭킹 뉴스 TOP 10:\n{fetch_media_press_ranking('215', 10)}"
+    # 2차: 언론사 215 랭킹 뉴스
+    part2 = fetch_media_press_ranking("215", 10)
 
     for msg in [part1, part2]:
         if len(msg) > 4000:
             msg = msg[:3990] + "\n(※ 일부 생략됨)"
-        res = requests.post(TELEGRAM_URL, data={
+        requests.post(TELEGRAM_URL, data={
             "chat_id": CHAT_ID,
             "text": msg
         })
+
         print("✅ 응답 코드:", res.status_code)
         print("📨 응답 내용:", res.text)
 
