@@ -86,7 +86,6 @@ def fetch_naver_ranking_news():
             res = requests.get(url, headers=headers, timeout=5)
             soup = BeautifulSoup(res.text, "html.parser")
 
-            # ✅ HTML 구조 파악 후 최신 기준 적용
             articles = soup.select("ul.rankingnews_list > li > div > a")[:3]
             if articles:
                 result += f"📌 {name} 뉴스 TOP 3\n"
@@ -102,18 +101,6 @@ def fetch_naver_ranking_news():
     return result or "(랭킹 뉴스 없음)"
 
 
-
-# ✅ 미국 관련 세계 뉴스 (네이버 검색 기반)
-def fetch_us_world_news():
-    url = "https://search.naver.com/search.naver?where=news&query=미국 증시 OR 미국 경제"
-    headers = {"User-Agent": "Mozilla/5.0"}
-    try:
-        res = requests.get(url, headers=headers)
-        soup = BeautifulSoup(res.text, "html.parser")
-        items = soup.select("ul.list_news div.news_area a.tit")[:3]
-        return "\n".join(f"• {a.text.strip()}\n👉 {a['href']}" for a in items)
-    except:
-        return "(미국 관련 세계 뉴스 없음)"
 
 # ✅ 전체 메시지 작성
 def build_message():
