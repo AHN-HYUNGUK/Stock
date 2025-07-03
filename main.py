@@ -94,7 +94,7 @@ def fetch_naver_ranking_news():
             if not block:
                 result += f"📌 {name} 뉴스 없음\n\n"
                 continue
-            articles = block.select("ul.rankingnews_list > li > div > a")[:3]
+            articles = block.select("div.rankingnews_box ul li a")[:3]
             if not articles:
                 result += f"📌 {name} 뉴스 없음\n\n"
                 continue
