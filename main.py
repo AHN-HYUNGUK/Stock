@@ -21,11 +21,18 @@ def debug_next_data(press_id="215"):
     url = f"https://media.naver.com/press/{press_id}/ranking"
     res = requests.get(url, headers={"User-Agent": "Mozilla/5.0"})
     res.encoding = "utf-8"
-    m = re.search(r'<script id="__NEXT_DATA__"[^>]*>(.+?)</script>', res.text, re.S)
-    data = json.loads(m.group(1))
-    pageProps = data["props"]["pageProps"]
+    soup = BeautifulSoup(res.text, "html.parser")
+
+    # BS4로 __NEXT_DATA__ 스크립트 태그 찾기
+    script_tag = soup.find("script", {"id": "__NEXT_DATA__"})
+    if not script_tag or not script_tag.string:
+        print("⚠️ __NEXT_DATA__ 스크립트를 찾지 못했습니다.")
+        return "(디버그 실패)"
+    
+    data = json.loads(script_tag.string)
+    pageProps = data.get("props", {}).get("pageProps", {})
     print(">>>> pageProps keys:", list(pageProps.keys()))
-    # 만약 initialState 같은 키가 보이면, 아래 주석을 해제해 더 깊이 살펴보세요:
+    # 필요하면 깊숙한 부분도 찍어보세요
     # print(json.dumps(pageProps.get("initialState", {}), indent=2, ensure_ascii=False))
     return "(디버그 완료 – 로그를 확인하세요)"
 
