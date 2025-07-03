@@ -12,6 +12,24 @@ from bs4 import BeautifulSoup
 from googletrans import Translator
 from dotenv import load_dotenv
 
+# main.py 상단에 import 구문 바로 아래 추가
+import re, json, requests
+from bs4 import BeautifulSoup
+
+# 이 함수를 fetch_media_press_ranking_fast 대신에 잠시 호출해 보세요.
+def debug_next_data(press_id="215"):
+    url = f"https://media.naver.com/press/{press_id}/ranking"
+    res = requests.get(url, headers={"User-Agent": "Mozilla/5.0"})
+    res.encoding = "utf-8"
+    m = re.search(r'<script id="__NEXT_DATA__"[^>]*>(.+?)</script>', res.text, re.S)
+    data = json.loads(m.group(1))
+    pageProps = data["props"]["pageProps"]
+    print(">>>> pageProps keys:", list(pageProps.keys()))
+    # 만약 initialState 같은 키가 보이면, 아래 주석을 해제해 더 깊이 살펴보세요:
+    # print(json.dumps(pageProps.get("initialState", {}), indent=2, ensure_ascii=False))
+    return "(디버그 완료 – 로그를 확인하세요)"
+
+
 
 # 환경 변수
 TOKEN = os.environ['TOKEN']
@@ -204,7 +222,7 @@ def send_to_telegram():
         f"📰 미국 증시 주요 기사:\n{fetch_us_market_news_titles()}\n"
     )
     # Playwright로 크롤링한 215 랭킹 뉴스
-    part2 = fetch_media_press_ranking_fast("215", 10)
+    part2 = debug_next_data("215")
 
     for msg in [part1, part2]:
         if len(msg) > 4000:
