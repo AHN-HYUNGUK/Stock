@@ -104,12 +104,13 @@ def fetch_naver_ranking_news():
 
 # ✅ 전체 메시지 작성
 def build_message():
-message = f"📈 [{today}] 뉴스 요약 + 시장 지표\n\n"
-message += f"📊 미국 주요 지수:\n{get_us_indices()}\n\n"
-message += f"💱 환율:\n{get_exchange_rates()}\n\n"
-message += f"📉 미국 섹터별 지수 변화:\n{get_sector_etf_changes(TWELVE_API_KEY)}\n\n"
-message += f"📰 네이버 랭킹 뉴스:\n{fetch_naver_ranking_news()}\n"
-    return msg
+    message = f"📈 [{today}] 뉴스 요약 + 시장 지표\n\n"
+    message += f"📊 미국 주요 지수:\n{get_us_indices()}\n\n"
+    message += f"💱 환율:\n{get_exchange_rates()}\n\n"
+    message += f"📉 미국 섹터별 지수 변화:\n{get_sector_etf_changes(TWELVE_API_KEY)}\n\n"
+    message += f"📰 네이버 랭킹 뉴스:\n{fetch_naver_ranking_news()}\n"
+    return message
+
 
 # ✅ 텔레그램 전송
 def send_to_telegram():
