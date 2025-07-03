@@ -158,19 +158,21 @@ def fetch_us_market_news_titles():
 from playwright.sync_api import sync_playwright
 
 def fetch_media_press_ranking_playwright(press_id="215", count=10):
-    url = f"https://media.naver.com/press/{press_id}/ranking"
+    url    = f"https://media.naver.com/press/{press_id}/ranking"
     result = f"📌 언론사 {press_id} 랭킹 뉴스 TOP {count}\n"
 
     with sync_playwright() as p:
         browser = p.chromium.launch(args=["--no-sandbox"])
-        page = browser.new_page()
+        page    = browser.new_page()
         page.goto(url)
         page.wait_for_load_state("networkidle")
-        page.wait_for_timeout(2000)
+        page.wait_for_timeout(2000)  # 안정적으로 렌더링 대기
 
-        items = page.query_selector_all("ul.list_ranking li")[:count]
-        for item in items:
-            a   = item.query_selector("a")
+        # ① href에 "/article/{press_id}/" 포함된 <a> 태그만 추려냅니다
+        anchors = page.query_selector_all(f"a[href*='/article/{press_id}/']")[:count]
+
+        for a in anchors:
+            # ② 제목 추출 (이미지 alt 우선, 없으면 inner_text에서 "조회수" 앞부분)
             img = a.query_selector("img")
             if img and img.get_attribute("alt"):
                 title = img.get_attribute("alt").strip()
@@ -178,13 +180,18 @@ def fetch_media_press_ranking_playwright(press_id="215", count=10):
                 raw   = a.inner_text().strip()
                 title = raw.split("조회수")[0].strip()
 
+            # ③ 절대 URL 보정
             href = a.get_attribute("href") or ""
             if not href.startswith("http"):
-                href = "https://media.naver.com" + href
+                href = "https://n.news.naver.com" + href
 
             result += f"• {title}\n👉 {href}\n"
 
         browser.close()
+
+    # 만약 anchors가 비었다면, 안내문구 대신 헤더만 반환될 수 있으니
+    if len(anchors) == 0:
+        return f"(press/{press_id} 랭킹 뉴스 없음)"
     return result
 
 
