@@ -140,30 +140,29 @@ def fetch_media_press_ranking_playwright(press_id="215", count=10):
         browser = p.chromium.launch(args=["--no-sandbox"])
         page = browser.new_page()
         page.goto(url)
-        page.wait_for_load_state("networkidle")   # 모든 리소스 로딩 대기
-        # 짧게라도 안정적으로 JS가 돌게 2초 대기
+        page.wait_for_load_state("networkidle")
         page.wait_for_timeout(2000)
 
-        seen = set()
-        items = []
-        for a in page.query_selector_all("a"):
+        # 실제 랭킹 항목 li를 가져옵니다.
+        items = page.query_selector_all("ul.list_ranking li")[:count]
+        for item in items:
+            a = item.query_selector("a")
+            img = a.query_selector("img")
+            if img and img.get_attribute("alt"):
+                title = img.get_attribute("alt").strip()
+            else:
+                # 혹시 alt가 없으면, '조회수' 뒤를 잘라냅니다.
+                raw = a.inner_text().strip()
+                title = raw.split("조회수")[0].strip()
+
             href = a.get_attribute("href") or ""
-            text = a.inner_text().strip()
-            if "/article/" in href and text and href not in seen:
-                seen.add(href)
-                # 링크 보정
-                link = href if href.startswith("http") else "https://" + href
-                items.append((text, link))
-            if len(items) >= count:
-                break
+            if not href.startswith("http"):
+                href = "https://media.naver.com" + href
+
+            result += f"• {title}\n👉 {href}\n"
 
         browser.close()
 
-    if not items:
-        return f"(press/{press_id} 랭킹 뉴스 없음)"
-
-    for title, link in items:
-        result += f"• {title}\n👉 {link}\n"
     return result
 
 
