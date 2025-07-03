@@ -85,7 +85,6 @@ def fetch_naver_ranking_news():
         try:
             res = requests.get(url, headers=headers, timeout=5)
             soup = BeautifulSoup(res.text, "html.parser")
-
             articles = soup.select("ul.rankingnews_list > li > div > a")[:3]
             if articles:
                 result += f"📌 {name} 뉴스 TOP 3\n"
@@ -96,9 +95,10 @@ def fetch_naver_ranking_news():
                 result += "\n"
             else:
                 result += f"({name} 뉴스 없음)\n"
-        except Exception as e:
+        except:
             result += f"({name} 뉴스 수집 실패)\n"
     return result or "(랭킹 뉴스 없음)"
+
 
 
 
