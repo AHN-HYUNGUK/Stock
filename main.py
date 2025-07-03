@@ -86,10 +86,11 @@ def fetch_naver_ranking_news():
 
     try:
         res = requests.get(url, headers=headers)
+        res.encoding = 'utf-8'  # 혹시 모를 인코딩 문제 방지
         soup = BeautifulSoup(res.text, "html.parser")
 
         for name, sec_id in sections.items():
-            block = soup.select_one(f"div.ranking_section[data-section-id='{sec_id}']")
+            block = soup.find("div", {"class": "ranking_section", "data-section-id": sec_id})
             if not block:
                 result += f"📌 {name} 뉴스 없음\n\n"
                 continue
@@ -105,10 +106,11 @@ def fetch_naver_ranking_news():
                     link = "https://news.naver.com" + link
                 result += f"• {title}\n👉 {link}\n"
             result += "\n"
-    except:
-        result += "(네이버 랭킹 뉴스 수집 실패)\n"
+    except Exception as e:
+        result += f"(네이버 랭킹 뉴스 수집 실패: {e})\n"
 
     return result
+
 
 
 
