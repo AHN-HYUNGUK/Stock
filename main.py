@@ -155,27 +155,27 @@ def fetch_us_market_news_titles():
 
 
 # ✅ 다음 한국 뉴스 (랭킹)
-# 🟢 다시 쓰는, 아까 잘 되던 정적 크롤링 함수
-def fetch_media_press_ranking(press_id="215", count=10):
-    url = f"https://media.naver.com/press/{press_id}/ranking"
+# main.py 어딘가, 기존 fetch_media_press_ranking 위나 아래에 붙여 넣으시면 됩니다.
+def fetch_daum_popular_news(count=10):
+    url = "https://news.daum.net/ranking/popular"
     headers = {"User-Agent": "Mozilla/5.0"}
     res = requests.get(url, headers=headers)
     res.encoding = "utf-8"
     soup = BeautifulSoup(res.text, "html.parser")
 
-    items = soup.select("ul.list_ranking li")[:count]
+    # ol.list_news2 li 안에 랭킹 뉴스가 들어 있습니다.
+    items = soup.select("ol.list_news2 li")[:count]
     if not items:
-        return f"(press/{press_id} 랭킹 뉴스 없음)"
+        return "(다음 인기 뉴스 없음)"
 
-    result = f"📌 언론사 {press_id} 랭킹 뉴스 TOP {count}\n"
-    for item in items:
-        a = item.select_one("a")
-        # <a title="제목"> 속성 사용
-        title = a.get("title", "").strip()
-        href  = a["href"]
-        if not href.startswith("http"):
-            href = "https://media.naver.com" + href
-        result += f"• {title}\n👉 {href}\n"
+    result = f"📌 다음 인기 뉴스 TOP {count}\n"
+    for li in items:
+        a = li.select_one("a.link_txt")
+        if not a:
+            continue
+        title = a.get_text(strip=True)
+        link  = a["href"]
+        result += f"• {title}\n👉 {link}\n"
 
     return result
 
@@ -207,8 +207,8 @@ def send_to_telegram():
         f"📉 미국 섹터별 지수 변화:\n{get_sector_etf_changes(TWELVE_API_KEY)}\n\n"
         f"📰 미국 증시 주요 기사:\n{fetch_us_market_news_titles()}\n"
     )
-    # Playwright로 크롤링한 215 랭킹 뉴스
-    part2 = fetch_media_press_ranking("215", 10)
+  
+    part2 = fetch_daum_popular_news(10)
 
     for msg in [part1, part2]:
         if len(msg) > 4000:
