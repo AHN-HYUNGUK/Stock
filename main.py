@@ -50,6 +50,7 @@ def get_exchange_rates():
     try:
         rates = res["conversion_rates"]
         return (f"USD: 1.00 기준\n"
+                f"KRW: {rates['KRW']:.2f}\n"
                 f"JPY (100엔): {rates['JPY'] * 100:.2f}\n"
                 f"EUR: {rates['EUR']:.2f}\n"
                 f"CNY: {rates['CNY']:.2f}")
@@ -184,14 +185,39 @@ def fetch_sector_news(sector_dict, lang="en"):
 
 
 # ✅ 네이버 한국뉴스 크롤링
-def fetch_korean_finance_news():
-    url = "https://finance.naver.com/news/mainnews.naver"
+def fetch_naver_sector_news(sector_dict):
     headers = {"User-Agent": "Mozilla/5.0"}
-    res = requests.get(url, headers=headers)
-    soup = BeautifulSoup(res.text, "html.parser")
-    items = soup.select(".mainNewsList li a")
-    titles = [a.text.strip() for a in items if a.text.strip()]
-    return "\n".join(f"• {t}" for t in titles[:3]) or "(한국 뉴스 없음)"
+    message = ""
+    for sector, keywords in sector_dict.items():
+        news_items = []
+        for kw in keywords:
+            url = f"https://search.naver.com/search.naver?where=news&query={kw}"
+            try:
+                res = requests.get(url, headers=headers, timeout=5)
+                soup = BeautifulSoup(res.text, "html.parser")
+                articles = soup.select("ul.list_news div.news_area a.tit")[:2]
+                for a in articles:
+                    title = a.text.strip()
+                    link = a['href']
+                    news_items.append(f"• {title}\n👉 {link}")
+            except:
+                continue
+        if news_items:
+            message += f"{sector}\n" + "\n".join(news_items[:2]) + "\n\n"
+    return message or "(관련 뉴스 없음)\n"
+
+# ✅ 네이버 미국뉴스 크롤링
+def fetch_us_world_news():
+    url = "https://search.naver.com/search.naver?where=news&query=미국 증시 OR 미국 경제"
+    headers = {"User-Agent": "Mozilla/5.0"}
+    try:
+        res = requests.get(url, headers=headers)
+        soup = BeautifulSoup(res.text, "html.parser")
+        items = soup.select("ul.list_news div.news_area a.tit")[:3]
+        return "\n".join(f"• {a.text.strip()}\n👉 {a['href']}" for a in items)
+    except:
+        return "(미국 관련 세계 뉴스 없음)"
+
 
 
 # ✅ 메시지 작성 및 전송
@@ -201,8 +227,9 @@ message += f"💱 환율:\n{get_exchange_rates()}\n\n"
 message += f"📉 미국 섹터별 지수 변화:\n{get_sector_etf_changes(TWELVE_API_KEY)}\n\n"
 message += f"🇺🇸 미국 증시 뉴스 (업종별):\n{fetch_sector_news(sector_keywords_en, 'en')}"
 message += f"🇰🇷 한국 증시 뉴스 (업종별):\n{fetch_sector_news(sector_keywords_kr, 'ko')}"
-message += f"\n🇰🇷 한국 주요 뉴스:\n{fetch_korean_finance_news()}\n"
-message += "\n출처: newsapi.org / investing.com / twelvedata.com / exchangerate-api.com"
+message += f"🇰🇷 한국 증시 뉴스 (업종별):\n{fetch_naver_sector_news(sector_keywords_kr)}"
+message += f"🌎 미국 관련 세계 뉴스:\n{fetch_us_world_news()}\n"
+
 
 res = requests.post(TELEGRAM_URL, data={"chat_id": CHAT_ID, "text": message})
 print("✅ 응답 코드:", res.status_code)
