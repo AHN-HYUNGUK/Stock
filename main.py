@@ -129,35 +129,32 @@ def fetch_us_market_news_titles():
 
 
 
-# ✅ 네이버 한국 뉴스 (랭킹)
-import re
+# ✅ 다음 한국 뉴스 (랭킹)
+def fetch_daum_popular_news(count=10):
+    """
+    https://news.daum.net/ranking/popular 페이지에서
+    TOP count 개 인기 뉴스를 가져옵니다.
+    """
+    url = "https://news.daum.net/ranking/popular"
+    headers = {"User-Agent": "Mozilla/5.0"}
+    res = requests.get(url, headers=headers)
+    res.encoding = "utf-8"
+    soup = BeautifulSoup(res.text, "html.parser")
 
-def fetch_naver_news_api(query="미국 증시", display=10):
-    headers = {
-        "X-Naver-Client-Id": NAVER_CLIENT_ID,
-        "X-Naver-Client-Secret": NAVER_CLIENT_SECRET,
-    }
-    params = {
-        "query": query,
-        "display": display,
-        "sort": "date"
-    }
-    url = "https://openapi.naver.com/v1/search/news.json"
-    res = requests.get(url, headers=headers, params=params).json()
-    items = res.get("items", [])
+    # 랭킹 리스트 항목 선택
+    items = soup.select("ol.list_news2 li")[:count]
     if not items:
-        return "(뉴스 없음)"
+        return "(다음 랭킹 뉴스 없음)"
 
-    result = f"📌 네이버 뉴스검색 '{query}' 최신 {display}개\n"
-    for it in items:
-        title = it["title"].replace("<b>", "").replace("</b>", "")
-        link  = it["link"]
+    result = f"📌 다음 뉴스 랭킹 TOP {count}\n"
+    for item in items:
+        a = item.select_one("a.link_txt")
+        title = a.text.strip()
+        link = a["href"]
         result += f"• {title}\n👉 {link}\n"
+
     return result
 
-
-print(fetch_naver_news_api("뉴욕 증시", 10))
-print(fetch_naver_news_api("S&P 500", 10))
 
 
 
@@ -177,7 +174,6 @@ def build_message():
 
 # ✅ 텔레그램 전송 함수 (안정화 적용 완료)
 def send_to_telegram():
-    # 1차: 지표 + 미국 뉴스
     part1 = (
         f"📈 [{today}] 뉴스 요약 + 시장 지표\n\n"
         f"📊 미국 주요 지수:\n{get_us_indices()}\n\n"
@@ -185,21 +181,15 @@ def send_to_telegram():
         f"📉 미국 섹터별 지수 변화:\n{get_sector_etf_changes(TWELVE_API_KEY)}\n\n"
         f"📰 미국 증시 주요 기사:\n{fetch_us_market_news_titles()}\n"
     )
-
-    # 2차: 언론사 215 랭킹 뉴스
-    part2 = fetch_naver_news_api("미국 증시", 10)
+    part2 = fetch_daum_popular_news(10)
 
     for msg in [part1, part2]:
         if len(msg) > 4000:
-            msg = msg[:3990] + "\n(※ 일부 생략됨)"
-
-        # POST 요청을 res 변수에 할당
+            msg = msg[:3990] + "\n(※ 생략됨)"
         res = requests.post(TELEGRAM_URL, data={
             "chat_id": CHAT_ID,
             "text": msg
         })
-
-        # 요청 결과 출력도 반드시 루프 안
         print("✅ 응답 코드:", res.status_code)
         print("📨 응답 내용:", res.text)
 
