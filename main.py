@@ -186,7 +186,7 @@ def send_to_telegram():
     )
 
     # 2차: 언론사 215 랭킹 뉴스
-    part2 = fetch_media_press_rss("215", 10)
+    part2 = fetch_naver_news_api("미국 증시", 10)
 
     for msg in [part1, part2]:
         if len(msg) > 4000:
