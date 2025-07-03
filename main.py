@@ -1,246 +1,128 @@
-# main.py
-
-import os                  # ← 이게 반드시 있어야 함!
+import os
 import datetime
-import re
 import requests
 import schedule
 import time
-import openai              # ← os 다음에 import openai
 from collections import Counter
 from bs4 import BeautifulSoup
 from googletrans import Translator
-from dotenv import load_dotenv
+from playwright.sync_api import sync_playwright
+import openai
 
-# main.py 상단에 import 구문 바로 아래 추가
-import re, json, requests
-from bs4 import BeautifulSoup
-
-# 이 함수를 fetch_media_press_ranking_fast 대신에 잠시 호출해 보세요.
-def debug_next_data(press_id="215"):
-    url = f"https://media.naver.com/press/{press_id}/ranking"
-    res = requests.get(url, headers={"User-Agent": "Mozilla/5.0"})
-    res.encoding = "utf-8"
-    soup = BeautifulSoup(res.text, "html.parser")
-
-    # BS4로 __NEXT_DATA__ 스크립트 태그 찾기
-    script_tag = soup.find("script", {"id": "__NEXT_DATA__"})
-    if not script_tag or not script_tag.string:
-        print("⚠️ __NEXT_DATA__ 스크립트를 찾지 못했습니다.")
-        return "(디버그 실패)"
-    
-    data = json.loads(script_tag.string)
-    pageProps = data.get("props", {}).get("pageProps", {})
-    print(">>>> pageProps keys:", list(pageProps.keys()))
-    # 필요하면 깊숙한 부분도 찍어보세요
-    # print(json.dumps(pageProps.get("initialState", {}), indent=2, ensure_ascii=False))
-    return "(디버그 완료 – 로그를 확인하세요)"
-
-
+load_dotenv = None  # dotenv 로딩이 필요 없으면 주석 처리
 
 # 환경 변수
-TOKEN = os.environ['TOKEN']
-CHAT_ID = os.environ['CHAT_ID']
-EXCHANGE_KEY = os.environ['EXCHANGEAPI']
-TWELVE_API_KEY = os.environ["TWELVEDATA_API"]
-TELEGRAM_URL = f"https://api.telegram.org/bot{TOKEN}/sendMessage"
-today = datetime.datetime.now().strftime('%Y년 %m월 %d일')
-NAVER_CLIENT_ID = os.getenv("NAVER_CLIENT_ID")
-NAVER_CLIENT_SECRET = os.getenv("NAVER_CLIENT_SECRET")
+TOKEN           = os.environ['TOKEN']
+CHAT_ID         = os.environ['CHAT_ID']
+EXCHANGE_KEY    = os.environ['EXCHANGEAPI']
+TWELVE_API_KEY  = os.environ["TWELVEDATA_API"]
+TELEGRAM_URL    = f"https://api.telegram.org/bot{TOKEN}/sendMessage"
+today           = datetime.datetime.now().strftime('%Y년 %m월 %d일')
 
 translator = Translator()
 
-# ✅ 미국 지수 크롤링
+
 def get_us_indices():
     url = "https://www.investing.com/indices/major-indices"
     headers = {"User-Agent": "Mozilla/5.0"}
     res = requests.get(url, headers=headers)
     soup = BeautifulSoup(res.text, "html.parser")
     rows = soup.select("table tbody tr")[:3]
-    results = []
-    for row in rows:
+    out = []
+    for r in rows:
         try:
-            name = row.select_one("td:nth-child(2)").text.strip()
-            now = float(row.select_one("td:nth-child(3)").text.strip().replace(",", ""))
-            prev = float(row.select_one("td:nth-child(4)").text.strip().replace(",", ""))
+            name = r.select_one("td:nth-child(2)").text.strip()
+            now  = float(r.select_one("td:nth-child(3)").text.replace(",", ""))
+            prev = float(r.select_one("td:nth-child(4)").text.replace(",", ""))
             diff = now - prev
-            rate = (diff / prev) * 100
-            icon = "▲" if diff > 0 else "▼" if diff < 0 else "-"
-            results.append(f"{name}: {now:,.2f} {icon}{abs(diff):,.2f} ({rate:+.2f}%)")
+            pct  = diff / prev * 100
+            icon = "▲" if diff>0 else "▼" if diff<0 else "-"
+            out.append(f"{name}: {now:,.2f} {icon}{abs(diff):.2f} ({pct:+.2f}%)")
         except:
-            results.append(f"{name}: 데이터 오류")
-    return "\n".join(results)
+            out.append(f"{name}: 데이터 오류")
+    return "\n".join(out)
 
-# ✅ 환율 (KRW 포함)
+
 def get_exchange_rates():
-    url = f"https://v6.exchangerate-api.com/v6/{EXCHANGE_KEY}/latest/USD"
-    res = requests.get(url).json()
-    try:
-        rates = res["conversion_rates"]
-        return (f"USD: 1.00 기준\n"
-                f"KRW: {rates['KRW']:.2f}\n"
-                f"JPY (100엔): {rates['JPY'] * 100:.2f}\n"
-                f"EUR: {rates['EUR']:.2f}\n"
-                f"CNY: {rates['CNY']:.2f}")
-    except:
-        return "(환율 정보 없음)"
+    res = requests.get(f"https://v6.exchangerate-api.com/v6/{EXCHANGE_KEY}/latest/USD").json()
+    rates = res.get("conversion_rates", {})
+    return (
+        f"USD: 1.00 기준\n"
+        f"KRW: {rates.get('KRW',0):.2f}\n"
+        f"JPY (100엔): {rates.get('JPY',0)*100:.2f}\n"
+        f"EUR: {rates.get('EUR',0):.2f}\n"
+        f"CNY: {rates.get('CNY',0):.2f}"
+    )
 
-# ✅ 미국 ETF 섹터별 지수
+
 def get_sector_etf_changes(api_key):
-    etfs = {
-        "💻 기술": "XLK",
-        "🏦 금융": "XLF",
-        "💊 헬스케어": "XLV",
-        "⚡ 에너지": "XLE",
-        "🛒 소비재": "XLY"
-    }
-    result = []
-    for name, symbol in etfs.items():
+    etfs = {"💻 기술":"XLK","🏦 금융":"XLF","💊 헬스케어":"XLV","⚡ 에너지":"XLE","🛒 소비재":"XLY"}
+    out = []
+    for name,sym in etfs.items():
         try:
-            url = f"https://api.twelvedata.com/quote?symbol={symbol}&apikey={api_key}"
-            res = requests.get(url).json()
-            price = float(res["close"])
-            change = float(res["change"])
-            percent = float(res["percent_change"])
-            icon = "▲" if change > 0 else "▼" if change < 0 else "-"
-            result.append(f"{name}: {price:.2f} {icon}{abs(change):.2f} ({percent:+.2f}%)")
+            j = requests.get(f"https://api.twelvedata.com/quote?symbol={sym}&apikey={api_key}").json()
+            p = float(j["close"]); c= float(j["change"]); pct=float(j["percent_change"])
+            icon = "▲" if c>0 else "▼" if c<0 else "-"
+            out.append(f"{name}: {p:.2f} {icon}{abs(c):.2f} ({pct:+.2f}%)")
         except:
-            result.append(f"{name}: 정보 없음")
-    return "\n".join(result)
+            out.append(f"{name}: 정보 없음")
+    return "\n".join(out)
 
-# ✅ 미국 증시 뉴스 수집 (Investopedia 기준)
+
 def fetch_us_market_news_titles():
     try:
         url = "https://finance.yahoo.com/"
-        headers = {"User-Agent": "Mozilla/5.0"}
-        res = requests.get(url, headers=headers)
-        soup = BeautifulSoup(res.text, "html.parser")
+        soup = BeautifulSoup(requests.get(url,headers={"User-Agent":"Mozilla/5.0"}).text, "html.parser")
+        arts = soup.select("li.js-stream-content a.js-content-viewer")[:3]
+        return "\n".join(
+            f"• {a.get_text(strip=True)}\n👉 { (a['href'] if a['href'].startswith('http') else 'https://finance.yahoo.com'+a['href']) }"
+            for a in arts
+        ) or "(기사 없음)"
+    except:
+        return "(뉴스 수집 실패)"
 
-        # 주요 뉴스 섹션
-        articles = soup.select("li.js-stream-content a.js-content-viewer")[:3]
-        results = []
-
-        for tag in articles:
-            title = tag.get_text(strip=True)
-            link = tag.get("href")
-            if not link.startswith("http"):
-                link = "https://finance.yahoo.com" + link
-            results.append(f"• {title}\n👉 {link}")
-
-        return "\n".join(results) if results else "(기사 없음)"
-    except Exception as e:
-        return f"(뉴스 수집 실패: {e})"
-
-
-
-
-# ✅ GPT-4o mini 요약
-# def summarize_news_with_gpt(news_titles):
-#     if "❗" in news_titles:
-#         return "(미국 뉴스 요약 실패)"
-#     prompt = f"""다음은 미국 증시 관련 기사 제목들입니다. 이를 바탕으로 한국어로 간결한 아침 뉴스 요약을 작성해 주세요.\n\n{news_titles}"""
-#     try:
-#         response = openai.ChatCompletion.create(
-#             model="gpt-4o",
-#             messages=[{"role": "user", "content": prompt}],
-#             temperature=0.3,
-#             max_tokens=300
-#         )
-#         return response.choices[0].message.content.strip()
-#     except Exception as e:
-#         return f"(GPT 요약 실패: {e})"
-
-
-
-
-
-# ✅ 다음 한국 뉴스 (랭킹)
-from playwright.sync_api import sync_playwright
 
 def fetch_media_press_ranking_playwright(press_id="215", count=10):
     url    = f"https://media.naver.com/press/{press_id}/ranking"
     result = f"📌 언론사 {press_id} 랭킹 뉴스 TOP {count}\n"
-
     with sync_playwright() as p:
         browser = p.chromium.launch(args=["--no-sandbox"])
         page    = browser.new_page()
-        page.goto(url)
-        page.wait_for_load_state("networkidle")
-        page.wait_for_timeout(2000)  # 안정적으로 렌더링 대기
-
-        # ① href에 "/article/{press_id}/" 포함된 <a> 태그만 추려냅니다
+        page.goto(url); page.wait_for_load_state("networkidle"); page.wait_for_timeout(2000)
         anchors = page.query_selector_all(f"a[href*='/article/{press_id}/']")[:count]
-
         for a in anchors:
-            # ② 제목 추출 (이미지 alt 우선, 없으면 inner_text에서 "조회수" 앞부분)
             img = a.query_selector("img")
-            if img and img.get_attribute("alt"):
-                title = img.get_attribute("alt").strip()
-            else:
-                raw   = a.inner_text().strip()
-                title = raw.split("조회수")[0].strip()
-
-            # ③ 절대 URL 보정
-            href = a.get_attribute("href") or ""
+            title = img.get_attribute("alt").strip() if img and img.get_attribute("alt") else a.inner_text().split("조회수")[0].strip()
+            href  = a.get_attribute("href")
             if not href.startswith("http"):
                 href = "https://n.news.naver.com" + href
-
             result += f"• {title}\n👉 {href}\n"
-
         browser.close()
-
-    # 만약 anchors가 비었다면, 안내문구 대신 헤더만 반환될 수 있으니
-    if len(anchors) == 0:
-        return f"(press/{press_id} 랭킹 뉴스 없음)"
-    return result
+    return result if anchors else f"(press/{press_id} 랭킹 뉴스 없음)"
 
 
-
-
-
-
-# ✅ 전체 메시지 작성
 def build_message():
-    message = f"📈 [{today}] 뉴스 요약 + 시장 지표\n\n"
-    # ✅ GPT 요약 대신 뉴스 제목만 출력
-    headlines = fetch_us_market_news_titles()
-    message += f"📊 미국 주요 지수:\n{get_us_indices()}\n\n"
-    message += f"💱 환율:\n{get_exchange_rates()}\n\n"
-    message += f"📉 미국 섹터별 지수 변화:\n{get_sector_etf_changes(TWELVE_API_KEY)}\n\n"
-    message += f"📰 미국 증시 주요 기사:\n{headlines}\n\n"
-    message += "\n" + fetch_naver_news_api("미국 증시", 10)
-    return message
-
-
-
-# ✅ 텔레그램 전송 함수 (안정화 적용 완료)
-def send_to_telegram():
-    part1 = (
+    return (
         f"📈 [{today}] 뉴스 요약 + 시장 지표\n\n"
         f"📊 미국 주요 지수:\n{get_us_indices()}\n\n"
         f"💱 환율:\n{get_exchange_rates()}\n\n"
         f"📉 미국 섹터별 지수 변화:\n{get_sector_etf_changes(TWELVE_API_KEY)}\n\n"
-        f"📰 미국 증시 주요 기사:\n{fetch_us_market_news_titles()}\n"
+        f"📰 미국 증시 주요 기사:\n{fetch_us_market_news_titles()}\n\n"
+        f"{fetch_media_press_ranking_playwright('215',10)}"
     )
-  
-    part2 = fetch_media_press_ranking_playwright("215", 10)
-
-    for msg in [part1, part2]:
-        if len(msg) > 4000:
-            msg = msg[:3990] + "\n(※ 일부 생략됨)"
-        res = requests.post(TELEGRAM_URL, data={
-            "chat_id": CHAT_ID,
-            "text": msg
-        })
-        print("✅ 응답 코드:", res.status_code)
-        print("📨 응답 내용:", res.text)
 
 
+def send_to_telegram():
+    msg = build_message()
+    if len(msg)>4000:
+        msg = msg[:3990] + "\n(※ 일부 생략됨)"
+    r = requests.post(TELEGRAM_URL, data={"chat_id":CHAT_ID,"text":msg})
+    print("✅ 응답 코드:", r.status_code, "| 📨", r.text)
 
-# ✅ 예약 실행 (Replit 또는 로컬 테스트용)
+
+# 매일 07:00, 15:00 KST 실행
 schedule.every().day.at("07:00").do(send_to_telegram)
 schedule.every().day.at("15:00").do(send_to_telegram)
 
-# ✅ main.py 끝부분만 이렇게
-if __name__ == "__main__":
+if __name__=="__main__":
     send_to_telegram()
