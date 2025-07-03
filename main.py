@@ -1,10 +1,16 @@
 # main.py
 
-import openai
-openai.api_key = os.getenv("OPENAI_API_KEY")
+import os                  # ← 이게 반드시 있어야 함!
+import datetime
+import re
+import requests
+import schedule
+import time
+import openai              # ← os 다음에 import openai
 from collections import Counter
 from bs4 import BeautifulSoup
 from googletrans import Translator
+
 
 # 환경 변수
 TOKEN = os.environ['TOKEN']
