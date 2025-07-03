@@ -128,30 +128,33 @@ def fetch_us_market_news_titles():
 
 
 # ✅ 네이버 한국 뉴스 (랭킹)
-# requirements.txt 에 아래 한 줄 추가
-feedparser
-
-# main.py 에 추가할 함수
-import feedparser
-
-def fetch_naver_top10_news():
+def fetch_media_press_ranking(press_id="215", count=10):
     """
-    네이버 전체 인기 뉴스 TOP 10을 RSS로 파싱해 반환합니다.
+    media.naver.com 의 특정 언론사(press_id) 랭킹뉴스 TOP count개를 반환합니다.
     """
-    # 전체 인기 뉴스 RSS URL (popularAll 기준)
-    rss_url = "https://news.naver.com/main/ranking/popular_all.rss"
-    feed = feedparser.parse(rss_url)
+    url = f"https://media.naver.com/press/{press_id}/ranking"
+    headers = {"User-Agent": "Mozilla/5.0"}
+    res = requests.get(url, headers=headers)
+    res.encoding = "utf-8"
+    soup = BeautifulSoup(res.text, "html.parser")
 
-    # 피드가 제대로 로드되지 않으면 예외 처리
-    if not feed.entries:
-        return "(랭킹 뉴스 없음)"
+    # li 태그 각각이 한 개의 랭킹 아이템입니다.
+    items = soup.select("ul.list_ranking li")[:count]
+    if not items:
+        return f"(press/{press_id} 랭킹 뉴스 없음)"
 
-    # 상위 10개 엔트리만
-    entries = feed.entries[:10]
-    result = "📌 네이버 랭킹 뉴스 TOP 10 (전체)\n"
-    for e in entries:
-        result += f"• {e.title}\n👉 {e.link}\n"
+    result = f"📌 언론사 {press_id} 랭킹 뉴스 TOP {count}\n"
+    for item in items:
+        a = item.select_one("a")
+        # 제목은 <a>의 title 속성에 들어 있습니다.
+        title = a.get("title", "").strip()
+        link = a["href"]
+        if not link.startswith("http"):
+            link = "https://media.naver.com" + link
+        result += f"• {title}\n👉 {link}\n"
+
     return result
+
 
 
 
@@ -172,6 +175,7 @@ def build_message():
     message += f"📉 미국 섹터별 지수 변화:\n{get_sector_etf_changes(TWELVE_API_KEY)}\n\n"
     message += f"📰 미국 증시 주요 기사:\n{headlines}\n\n"
     message += f"📰 네이버 랭킹 뉴스:\n{fetch_naver_top10_news()}\n"
+    message += fetch_media_press_ranking("215", 10)  # press_id="215", TOP 10개
     return message
 
 
