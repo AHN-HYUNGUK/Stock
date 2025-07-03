@@ -155,40 +155,26 @@ def fetch_us_market_news_titles():
 
 
 # ✅ 다음 한국 뉴스 (랭킹)
-from playwright.sync_api import sync_playwright
+def fetch_daum_popular_news(count=10):
+    url = "https://news.daum.net/ranking/popular"
+    headers = {"User-Agent": "Mozilla/5.0"}
+    res = requests.get(url, headers=headers)
+    res.encoding = "utf-8"
+    soup = BeautifulSoup(res.text, "html.parser")
 
-def fetch_media_press_ranking_playwright(press_id="215", count=10):
-    url = f"https://media.naver.com/press/{press_id}/ranking"
-    result = f"📌 언론사 {press_id} 랭킹 뉴스 TOP {count}\n"
-
-    with sync_playwright() as p:
-        browser = p.chromium.launch(args=["--no-sandbox"])
-        page = browser.new_page()
-        page.goto(url)
-        page.wait_for_load_state("networkidle")   # 모든 리소스 로딩 대기
-        # 짧게라도 안정적으로 JS가 돌게 2초 대기
-        page.wait_for_timeout(2000)
-
-        seen = set()
-        items = []
-        for a in page.query_selector_all("a"):
-            href = a.get_attribute("href") or ""
-            text = a.inner_text().strip()
-            if "/article/" in href and text and href not in seen:
-                seen.add(href)
-                # 링크 보정
-                link = href if href.startswith("http") else "https://" + href
-                items.append((text, link))
-            if len(items) >= count:
-                break
-
-        browser.close()
-
+    items = soup.select("ol.list_news2 li")[:count]
     if not items:
-        return f"(press/{press_id} 랭킹 뉴스 없음)"
+        return "(다음 인기 뉴스 없음)"
 
-    for title, link in items:
+    result = f"📌 다음 인기 뉴스 TOP {count}\n"
+    for li in items:
+        a = li.select_one("a.link_txt")
+        if not a:
+            continue
+        title = a.get_text(strip=True)
+        link  = a["href"]
         result += f"• {title}\n👉 {link}\n"
+
     return result
 
 
