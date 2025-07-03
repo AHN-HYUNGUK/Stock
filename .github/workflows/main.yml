@@ -30,3 +30,11 @@ jobs:
 
       - name: Run script
         run: python main.py
+
+      - name: Install dependencies
+        run: |
+          pip install -r requirements.txt
+          pip install playwright
+
+      - name: Install Playwright browsers
+        run: playwright install --with-deps
