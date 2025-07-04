@@ -117,8 +117,9 @@ def build_message():
         f"💱 환율:\n{get_exchange_rates()}\n\n"
         f"📉 미국 섹터별 지수 변화:\n{get_sector_etf_changes(TWELVE_API_KEY)}\n\n"
         f"{get_fear_greed_index()}\n\n"
-        f"📰 미국 증시 주요 기사:\n{fetch_us_market_news_titles()}"
+        f"📰 미국 관련 주요 뉴스 (네이버 기준):\n{fetch_media_press_ranking_playwright('074', 3)}"
     )
+
 
 def send_to_telegram():
     part1 = build_message()
