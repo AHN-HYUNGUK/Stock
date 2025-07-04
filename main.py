@@ -105,12 +105,20 @@ def get_fear_greed_index():
     try:
         url = "https://feargreedindex.io/"
         headers = {"User-Agent": "Mozilla/5.0"}
-        soup = BeautifulSoup(requests.get(url, headers=headers).text, "html.parser")
-        value = soup.select_one("div.value").text.strip()
-        label = soup.select_one("div.status").text.strip()
-        return f"📌 공포·탐욕 지수: {value}점 ({label})"
+        res = requests.get(url, headers=headers, timeout=10)
+        soup = BeautifulSoup(res.text, "html.parser")
+
+        value_el = soup.select_one("div.value")
+        label_el = soup.select_one("div.status")
+
+        if value_el and label_el:
+            value = value_el.text.strip()
+            label = label_el.text.strip()
+            return f"📌 공포·탐욕 지수: {value}점 ({label})"
+        else:
+            return "📌 공포·탐욕 지수: 데이터 요소를 찾지 못함"
     except Exception as e:
-        return "📌 공포·탐욕 지수: 가져오기 실패"
+        return f"📌 공포·탐욕 지수: 가져오기 실패"
 
 
 
