@@ -114,11 +114,16 @@ def get_fear_greed_index():
         if value_el and label_el:
             value = value_el.text.strip()
             label = label_el.text.strip()
-            return f"📌 공포·탐욕 지수: {value}점 ({label})"
+            result = f"📌 공포·탐욕 지수: {value}점 ({label})"
+            print("[DEBUG] 공포·탐욕 지수 →", result)  # ✅ 로그 추가
+            return result
         else:
-            return "📌 공포·탐욕 지수: 값이 비어 있음 (구조 변경 가능성)"
+            print("[DEBUG] 공포·탐욕 지수 요소 못 찾음")
+            return "📌 공포·탐욕 지수: 요소 없음 (사이트 구조 변경 가능)"
     except Exception as e:
-        return f"📌 공포·탐욕 지수: 가져오기 실패 - {str(e)}"
+        print("[ERROR] 공포·탐욕 지수 예외:", e)
+        return f"📌 공포·탐욕 지수: 가져오기 실패"
+
 
 
 
