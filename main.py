@@ -67,19 +67,18 @@ def get_sector_etf_changes(api_key):
     return "\n".join(out)
 
 def get_stock_prices(api_key):
-    us_symbols = {
+    symbols = {
         "Tesla (TSLA)": "TSLA",
         "Nvidia (NVDA)": "NVDA",
-        "Palantir (PLTR)": "PLTR",
-        "Robinhood (HOOD)": "HOOD",
-        "IonQ (IONQ)": "IONQ",
-        "Google (GOOGL)": "GOOGL",
-        "QQQ ETF": "QQQ",
-        "SCHD ETF": "SCHD"
+        "Apple (AAPL)": "AAPL",
+        "Microsoft (MSFT)": "MSFT",
+        "Amazon (AMZN)": "AMZN",
+        "Meta (META)": "META",
+        "Google (GOOG)": "GOOG",
+        "QQQ ETF": "QQQ"
     }
     out = []
-    # 미국 종목
-    for name, sym in us_symbols.items():
+    for name, sym in symbols.items():
         try:
             j = requests.get(f"https://api.twelvedata.com/quote?symbol={sym}&apikey={api_key}").json()
             p = float(j["close"])
@@ -89,11 +88,6 @@ def get_stock_prices(api_key):
             out.append(f"• {name}: ${p:.2f} {icon}{abs(c):.2f} ({pct:+.2f}%)")
         except:
             out.append(f"• {name}: 정보 없음")
-
-    # 한국 종목
-    out.append(get_korean_stock_price("005930", "삼성전자"))
-    out.append(get_korean_stock_price("005380", "현대차"))
-
     return "📌 주요 종목 시세:\n" + "\n".join(out)
 
 
