@@ -103,27 +103,15 @@ def fetch_media_press_ranking_playwright(press_id="215", count=10):
 
 def get_fear_greed_index():
     try:
-        with sync_playwright() as p:
-            browser = p.chromium.launch(args=["--no-sandbox"])
-            page = browser.new_page()
-            page.goto("https://edition.cnn.com/markets/fear-and-greed")
-            page.wait_for_timeout(5000)
-
-            # 값 추출
-            value_el = page.locator("div[class*='DialValue']").first
-            label_el = page.locator("div[class*='DialDescriptor']").first
-
-            value = value_el.inner_text().strip()
-            label = label_el.inner_text().strip()
-            browser.close()
-
-            # 유효성 확인
-            if not value or not label:
-                return "📌 공포·탐욕 지수: 정보 없음"
-
-            return f"📌 공포·탐욕 지수: {value}점 ({label})"
+        url = "https://feargreedindex.io/"
+        headers = {"User-Agent": "Mozilla/5.0"}
+        soup = BeautifulSoup(requests.get(url, headers=headers).text, "html.parser")
+        value = soup.select_one("div.value").text.strip()
+        label = soup.select_one("div.status").text.strip()
+        return f"📌 공포·탐욕 지수: {value}점 ({label})"
     except Exception as e:
-        return f"📌 공포·탐욕 지수: 가져오기 실패"
+        return "📌 공포·탐욕 지수: 가져오기 실패"
+
 
 
 
