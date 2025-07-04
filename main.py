@@ -108,12 +108,23 @@ def get_fear_greed_index():
             page = browser.new_page()
             page.goto("https://edition.cnn.com/markets/fear-and-greed")
             page.wait_for_timeout(5000)
-            value = page.locator("div.FearGreedGraph__DialValue-sc-1e7a8fi-2").first.inner_text()
-            label = page.locator("div.FearGreedGraph__DialDescriptor-sc-1e7a8fi-3").first.inner_text()
+
+            # 값 추출
+            value_el = page.locator("div[class*='DialValue']").first
+            label_el = page.locator("div[class*='DialDescriptor']").first
+
+            value = value_el.inner_text().strip()
+            label = label_el.inner_text().strip()
             browser.close()
-        return f"📌 공포·탐욕 지수: {value}점 ({label})"
+
+            # 유효성 확인
+            if not value or not label:
+                return "📌 공포·탐욕 지수: 정보 없음"
+
+            return f"📌 공포·탐욕 지수: {value}점 ({label})"
     except Exception as e:
-        return "📌 공포·탐욕 지수: 가져오기 실패"
+        return f"📌 공포·탐욕 지수: 가져오기 실패"
+
 
 
 
