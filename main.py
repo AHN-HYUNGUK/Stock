@@ -66,6 +66,31 @@ def get_sector_etf_changes(api_key):
             out.append(f"{name}: 정보 없음")
     return "\n".join(out)
 
+def get_stock_prices(api_key):
+    symbols = {
+        "Tesla (TSLA)": "TSLA",
+        "Nvidia (NVDA)": "NVDA",
+        "Palantir (PLTR)": "PLTR",
+        "Robinhood (HOOD)": "HOOD",
+        "IonQ (IONQ)": "IONQ",
+        "Google (GOOGL)": "GOOGL",
+        "QQQ ETF": "QQQ",
+        "SCHD ETF": "SCHD"
+    }
+    out = []
+    for name, sym in symbols.items():
+        try:
+            j = requests.get(f"https://api.twelvedata.com/quote?symbol={sym}&apikey={api_key}").json()
+            p = float(j["close"])
+            c = float(j["change"])
+            pct = float(j["percent_change"])
+            icon = "▲" if c > 0 else "▼" if c < 0 else "-"
+            out.append(f"• {name}: ${p:.2f} {icon}{abs(c):.2f} ({pct:+.2f}%)")
+        except:
+            out.append(f"• {name}: 정보 없음")
+    return "📌 주요 종목 시세:\n" + "\n".join(out)
+
+
 def fetch_us_market_news_titles():
     try:
         url = "https://finance.yahoo.com/"
@@ -122,6 +147,7 @@ def build_message():
         f"💱 환율:\n{get_exchange_rates()}\n\n"
         f"📉 미국 섹터별 지수 변화:\n{get_sector_etf_changes(TWELVE_API_KEY)}\n\n"
         f"{get_fear_greed_index()}\n\n"
+        f"{get_stock_prices(TWELVE_API_KEY)}\n\n"
         f"📰 세계 언론사 랭킹 뉴스 (press 074):\n{fetch_media_press_ranking_playwright('074', 3)}"
     )
 
