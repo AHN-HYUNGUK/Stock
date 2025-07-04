@@ -105,7 +105,7 @@ def get_fear_greed_index():
         data = res["data"][0]
         value = data["value"]
         label = data["value_classification"]
-        return f"📌 공포·탐욕 지수 (Crypto 기준): {value}점 ({label})"
+        return f"📌 공포·탐욕 지수 (코인 Crypto 기준): {value}점 ({label})"
     except Exception as e:
         print("[ERROR] 공포·탐욕 지수 예외:", e)
         return "📌 공포·탐욕 지수: 가져오기 실패"
