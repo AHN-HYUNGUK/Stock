@@ -67,7 +67,7 @@ def get_sector_etf_changes(api_key):
     return "\n".join(out)
 
 def get_stock_prices(api_key):
-    symbols = {
+    us_symbols = {
         "Tesla (TSLA)": "TSLA",
         "Nvidia (NVDA)": "NVDA",
         "Palantir (PLTR)": "PLTR",
@@ -78,7 +78,8 @@ def get_stock_prices(api_key):
         "SCHD ETF": "SCHD"
     }
     out = []
-    for name, sym in symbols.items():
+    # 미국 종목
+    for name, sym in us_symbols.items():
         try:
             j = requests.get(f"https://api.twelvedata.com/quote?symbol={sym}&apikey={api_key}").json()
             p = float(j["close"])
@@ -88,7 +89,26 @@ def get_stock_prices(api_key):
             out.append(f"• {name}: ${p:.2f} {icon}{abs(c):.2f} ({pct:+.2f}%)")
         except:
             out.append(f"• {name}: 정보 없음")
+
+    # 한국 종목
+    out.append(get_korean_stock_price("005930", "삼성전자"))
+    out.append(get_korean_stock_price("005380", "현대차"))
+
     return "📌 주요 종목 시세:\n" + "\n".join(out)
+
+
+def get_korean_stock_price(stock_code, name):
+    try:
+        url = f"https://finance.naver.com/item/sise.naver?code={stock_code}"
+        res = requests.get(url, headers={"User-Agent": "Mozilla/5.0"})
+        soup = BeautifulSoup(res.text, "html.parser")
+        price = soup.select_one("strong#_nowVal").text.replace(",", "")
+        change = soup.select_one("span#_change").text.strip().replace(",", "")
+        rate = soup.select_one("span#_rate").text.strip()
+        icon = "▲" if "-" not in change else "▼"
+        return f"• {name}: {int(price):,}원 {icon}{change.replace('-', '')} ({rate})"
+    except:
+        return f"• {name}: 정보 없음"
 
 
 def fetch_us_market_news_titles():
