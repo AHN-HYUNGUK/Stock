@@ -117,7 +117,7 @@ def build_message():
         f"💱 환율:\n{get_exchange_rates()}\n\n"
         f"📉 미국 섹터별 지수 변화:\n{get_sector_etf_changes(TWELVE_API_KEY)}\n\n"
         f"{get_fear_greed_index()}\n\n"
-        f"📰 미국 관련 주요 뉴스 (네이버 기준):\n{fetch_media_press_ranking_playwright('074', 3)}"
+        f"📰 세계 언론사 랭킹 뉴스 (press 074):\n{fetch_media_press_ranking_playwright('074', 3)}"
     )
 
 
