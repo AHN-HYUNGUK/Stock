@@ -90,13 +90,18 @@ def fetch_media_press_ranking_playwright(press_id="215", count=10):
         anchors = page.query_selector_all(f"a[href*='/article/{press_id}/']")[:count]
         for a in anchors:
             img = a.query_selector("img")
-            title = img.get_attribute("alt").strip() if img and img.get_attribute("alt") else a.inner_text().split("조회수")[0].strip()
+            title = (
+                img.get_attribute("alt").strip()
+                if img and img.get_attribute("alt")
+                else a.inner_text().strip()
+            )
             href = a.get_attribute("href")
             if not href.startswith("http"):
                 href = "https://n.news.naver.com" + href
             result += f"• {title}\n👉 {href}\n"
         browser.close()
-    return result if anchors else f"(press/{press_id} 랭킹 뉴스 없음)"
+    return result if anchors else f"• 현재 시점에 해당 언론사의 랭킹 뉴스가 없습니다.\n"
+
 
 def get_fear_greed_index():
     try:
