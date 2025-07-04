@@ -101,12 +101,28 @@ def fetch_media_press_ranking_playwright(press_id="215", count=10):
     return result if anchors else f"(press/{press_id} 랭킹 뉴스 없음)"
 
 
+def get_fear_greed_index():
+    try:
+        url = "https://edition.cnn.com/markets/fear-and-greed"
+        headers = {"User-Agent": "Mozilla/5.0"}
+        soup = BeautifulSoup(requests.get(url, headers=headers).text, "html.parser")
+        needle = soup.select_one("div[class*='FearGreedGraph__DialValue']")
+        desc = soup.select_one("div[class*='FearGreedGraph__DialDescriptor']")
+        value = needle.text.strip() if needle else "N/A"
+        label = desc.text.strip() if desc else "정보 없음"
+        return f"📌 공포·탐욕 지수: {value}점 ({label})"
+    except Exception as e:
+        return f"📌 공포·탐욕 지수: 가져오기 실패"
+
+
+
 def build_message():
     return (
         f"📈 [{today}] 뉴스 요약 + 시장 지표\n\n"
         f"📊 미국 주요 지수:\n{get_us_indices()}\n\n"
         f"💱 환율:\n{get_exchange_rates()}\n\n"
         f"📉 미국 섹터별 지수 변화:\n{get_sector_etf_changes(TWELVE_API_KEY)}\n\n"
+        f" 공포탐욕지수:\n{get_fear_greed_index()}\n\n"
         f"📰 미국 증시 주요 기사:\n{fetch_us_market_news_titles()}\n\n"
         f"{fetch_media_press_ranking_playwright('215', 10)}"
     )
