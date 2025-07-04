@@ -68,14 +68,13 @@ def get_sector_etf_changes(api_key):
 
 def get_stock_prices(api_key):
     symbols = {
-        "Tesla (TSLA)": "TSLA",
-        "Nvidia (NVDA)": "NVDA",
-        "Apple (AAPL)": "AAPL",
-        "Microsoft (MSFT)": "MSFT",
-        "Amazon (AMZN)": "AMZN",
-        "Meta (META)": "META",
-        "Google (GOOG)": "GOOG",
-        "QQQ ETF": "QQQ"
+    "Tesla (TSLA)": "TSLA",
+    "Nvidia (NVDA)": "NVDA",
+    "Apple (AAPL)": "AAPL",
+    "Microsoft (MSFT)": "MSFT",
+    "Amazon (AMZN)": "AMZN",
+    "Meta (META)": "META",
+    "Berkshire Hathaway (BRK.B)": "BRK.B"
     }
     out = []
     for name, sym in symbols.items():
