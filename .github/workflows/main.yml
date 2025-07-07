@@ -8,7 +8,7 @@ on:
 
 jobs:
   run-news-bot:
-    runs-on: self-hosted
+    runs-on: ubuntu-latest
 
     env:
       OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
