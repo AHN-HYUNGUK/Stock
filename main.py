@@ -9,7 +9,7 @@ from bs4 import BeautifulSoup
 from googletrans import Translator
 from playwright.sync_api import sync_playwright
 import openai
-import csv, io, json  # ← 버핏지수 계산용(FRED CSV 파싱)
+import csv, io, json, time  # ← 버핏지수 계산용(FRED CSV 파싱)
 
 HTTP_HEADERS = {
     "User-Agent": "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 "
@@ -36,7 +36,6 @@ translator = Translator()
 # ── 지표/시세 수집 ────────────────────────────────────────
 def get_us_indices():
     url = "https://www.investing.com/indices/major-indices"
-    headers = {"User-Agent": "Mozilla/5.0"}
     res = requests.get(url, headers=HTTP_HEADERS)
     soup = BeautifulSoup(res.text, "html.parser")
     rows = soup.select("table tbody tr")[:3]
@@ -170,8 +169,6 @@ def get_fear_greed_index():
         return "📌 공포·탐욕 지수: 가져오기 실패"
 
 # ── 버핏지수 (신규 / 견고 폴백 버전) ─────────────────────────────
-import csv, io, time
-
 def _fred_api_latest(series_id: str, api_key: str | None, tries: int = 2):
     """FRED 공식 JSON API로 최신 유효값(숫자) 가져오기. UA 포함."""
     if not api_key:
