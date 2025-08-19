@@ -272,7 +272,7 @@ def get_buffett_indicator():
     """
     버핏지수(근사) ≈ (Wilshire 5000 / 미국 명목 GDP) * 100
     """
-    api_key = os.getenv("FRED_API_KEY")  # Secrets에 넣은 키
+    api_key = FRED_API_KEY
 
     # 0) GDP 먼저 한 번만 확보
     gdp = fred_latest_one("GDP", api_key)
