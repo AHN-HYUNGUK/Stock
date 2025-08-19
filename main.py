@@ -11,6 +11,13 @@ from playwright.sync_api import sync_playwright
 import openai
 import csv, io, json  # ← 버핏지수 계산용(FRED CSV 파싱)
 
+HTTP_HEADERS = {
+    "User-Agent": "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 "
+                  "(KHTML, like Gecko) Chrome/124.0 Safari/537.36",
+    "Accept": "application/json, text/csv;q=0.9,*/*;q=0.8",
+}
+
+
 # (dotenv 사용 안 하면 그대로 두세요)
 load_dotenv = None
 
@@ -162,26 +169,22 @@ def get_fear_greed_index():
 import csv, io, time
 
 def _fred_api_latest(series_id: str, api_key: str | None, tries: int = 2):
-    """
-    FRED 공식 JSON API로 최신 유효값(숫자)을 가져옴.
-    키가 없으면 None 반환하여 상위 로직에서 CSV 폴백.
-    """
+    """FRED 공식 JSON API로 최신 유효값(숫자) 가져오기. UA 포함."""
     if not api_key:
-        return None  # 키 없으면 이 경로는 건너뜀
-
+        return None
     url = "https://api.stlouisfed.org/fred/series/observations"
     params = {
         "series_id": series_id,
         "api_key": api_key,
         "file_type": "json",
-        "sort_order": "desc",      # 최신부터
+        "sort_order": "desc",
         "observation_start": "1990-01-01",
-        "limit": 1000
+        "limit": 1000,
     }
     last_exc = None
     for attempt in range(1, tries + 1):
         try:
-            r = requests.get(url, params=params, timeout=20)
+            r = requests.get(url, params=params, headers=HTTP_HEADERS, timeout=20)
             r.raise_for_status()
             j = r.json()
             for obs in j.get("observations", []):
@@ -197,18 +200,13 @@ def _fred_api_latest(series_id: str, api_key: str | None, tries: int = 2):
 
 
 def _fred_csv_latest_combined(series_ids, tries: int = 2):
-    """
-    fredgraph.csv?id=A,B 방식으로 여러 시리즈를 한번에 요청해
-    각 시리즈의 최신 유효값을 반환.
-    """
+    """fredgraph.csv?id=A,B… 일괄 요청."""
     base = "https://fred.stlouisfed.org/graph/fredgraph.csv"
     params = {"id": ",".join(series_ids)}
-    headers = {"User-Agent": "Mozilla/5.0", "Accept": "text/csv"}
-
     last_exc = None
     for attempt in range(1, tries + 1):
         try:
-            r = requests.get(base, params=params, headers=headers, timeout=20)
+            r = requests.get(base, params=params, headers=HTTP_HEADERS, timeout=20)
             r.raise_for_status()
             rows = list(csv.DictReader(io.StringIO(r.text)))
             latest = {sid: (None, None) for sid in series_ids}
@@ -233,20 +231,16 @@ def _fred_csv_latest_combined(series_ids, tries: int = 2):
 
 
 def _fred_csv_latest_single(series_id: str, tries: int = 2):
-    """
-    downloaddata CSV 단일 시리즈 폴백.
-    NOTE: 이 CSV의 컬럼은 DATE, VALUE 이므로 'VALUE'를 읽어야 함!
-    """
+    """downloaddata 단일 시리즈 폴백. (헤더는 DATE, VALUE임에 주의)"""
     url = f"https://fred.stlouisfed.org/series/{series_id}/downloaddata/{series_id}.csv"
-    headers = {"User-Agent": "Mozilla/5.0", "Accept": "text/csv"}
     last_exc = None
     for attempt in range(1, tries + 1):
         try:
-            r = requests.get(url, headers=headers, timeout=20)
+            r = requests.get(url, headers=HTTP_HEADERS, timeout=20)
             r.raise_for_status()
             rows = list(csv.DictReader(io.StringIO(r.text)))
             for row in reversed(rows):
-                raw = (row.get("VALUE") or "").strip()  # ✅ 핵심 수정: 'VALUE'
+                raw = (row.get("VALUE") or "").strip()  # ✅ VALUE 고정
                 if raw and raw != ".":
                     return row.get("DATE"), float(raw)
             raise ValueError(f"No numeric observations for {series_id}")
@@ -257,59 +251,46 @@ def _fred_csv_latest_single(series_id: str, tries: int = 2):
     return None
 
 
+def fred_latest_one(series_id: str, api_key: str | None):
+    """한 개 시리즈를 ①API → ②fredgraph.csv → ③downloaddata 순으로 시도."""
+    # ① API
+    val = _fred_api_latest(series_id, api_key)
+    if val:
+        return val
+    # ② fredgraph.csv (단일도 지원하므로 동일 경로 사용)
+    combo = _fred_csv_latest_combined([series_id])
+    if combo and combo.get(series_id) and combo[series_id][1] is not None:
+        return combo[series_id]
+    # ③ downloaddata
+    return _fred_csv_latest_single(series_id)
 
-def fred_latest_values_resilient(series_ids, api_key: str | None):
-    result = {}
-
-    # 1) API 경로
-    if api_key:
-        api_ok = True
-        for sid in series_ids:
-            val = _fred_api_latest(sid, api_key)
-            if val is None:
-                api_ok = False
-                break
-            result[sid] = val
-        if api_ok:
-            print("[BUFFETT] used: FRED API")
-            return result
-
-    # 2) fredgraph.csv
-    combined = _fred_csv_latest_combined(series_ids)
-    if combined:
-        print("[BUFFETT] used: fredgraph.csv")
-        return combined
-
-    # 3) downloaddata CSV (단일)
-    for sid in series_ids:
-        val = _fred_csv_latest_single(sid)
-        if val is None:
-            return None
-        result[sid] = val
-    print("[BUFFETT] used: downloaddata CSV (single)")
-    return result
 
 
 
 def get_buffett_indicator():
     """
     버핏지수(근사) ≈ (Wilshire 5000 / 미국 명목 GDP) * 100
-    - Wilshire 후보: 'WILL5000INDFC' → 실패시 'WILL5000IND' → 'WILL5000PR'
-    - GDP: 'GDP' (분기, 십억달러, SAAR)
     """
-    wilshire_candidates = ["WILL5000INDFC", "WILL5000IND", "WILL5000PR"]
-    last_error = None
+    api_key = os.getenv("FRED_API_KEY")  # Secrets에 넣은 키
 
+    # 0) GDP 먼저 한 번만 확보
+    gdp = fred_latest_one("GDP", api_key)
+    if not gdp:
+        print("[WARN] GDP fetch failed")
+        return "📐 버핏지수: 데이터 없음"
+    gdp_date, gdp_val = gdp
+
+    # 1) Wilshire 후보들 순회
+    wilshire_candidates = ["WILL5000INDFC", "WILL5000IND", "WILL5000PR", "WILL5000PRFC"]
+    last_exc = None
     for sid in wilshire_candidates:
         try:
-            data = fred_latest_values_resilient([sid, "GDP"], FRED_API_KEY)
-            if not data:
-                raise RuntimeError("All FRED paths failed")
-            (wil_date, wil_val) = data[sid]
-            (gdp_date, gdp_val) = data["GDP"]
+            wil = fred_latest_one(sid, api_key)
+            if not wil:
+                continue
+            wil_date, wil_val = wil
 
             ratio = (wil_val / gdp_val) * 100.0
-
             if ratio < 75:
                 label = "저평가 구간"
             elif ratio < 90:
@@ -321,17 +302,20 @@ def get_buffett_indicator():
             else:
                 label = "고평가 경고"
 
+            # 경로 로그(러너 콘솔에서 확인용)
+            print(f"[BUFFETT] GDP:{gdp_date}={gdp_val}, {sid}:{wil_date}={wil_val}")
             return (
                 f"📐 버핏지수(근사): {ratio:.0f}% — {label}\n"
-                f"    · Wilshire: {wil_val:,.0f} (기준 {wil_date})\n"
+                f"    · Wilshire({sid}): {wil_val:,.0f} (기준 {wil_date})\n"
                 f"    · GDP: {gdp_val:,.0f} (기준 {gdp_date})"
             )
         except Exception as e:
-            last_error = e
+            last_exc = e
             continue
 
-    print("[WARN] Buffett indicator error:", repr(last_error))
+    print("[WARN] Buffett indicator error (all Wilshire candidates failed):", repr(last_exc))
     return "📐 버핏지수: 데이터 없음"
+
 
 
 
