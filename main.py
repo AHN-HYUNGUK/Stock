@@ -159,122 +159,88 @@ def get_fear_greed_index():
         return "📌 공포·탐욕 지수: 가져오기 실패"
 
 # ── 버핏지수 (신규) ───────────────────────────────────────
-def fred_latest_value_api(series_id: str, tries: int = 3, sleep_base: float = 1.0):
+ef fred_latest_values_csv(series_ids, tries: int = 3, sleep_base: float = 1.0):
     """
-    FRED JSON API로 최신 '유효한' 관측값을 가져옵니다.
-    최신 값이 '.'(결측)일 수 있어 여러 개를 받아 첫 숫자만 채택.
+    FRED CSV에서 여러 시리즈를 한 번에 받아, 각 시리즈의 '가장 최신 유효값(숫자)'을 반환.
+    return: {series_id: (date_str, float_value)}
     """
-    if not FRED_API_KEY:
-        raise RuntimeError("FRED_API_KEY is missing")
-    url = "https://api.stlouisfed.org/fred/series/observations"
-    params = {
-        "series_id": series_id,
-        "api_key": FRED_API_KEY,
-        "file_type": "json",
-        "sort_order": "desc",   # 최신값 먼저
-        "limit": 36             # 최근 수십 개 확보해 두고 첫 유효값 사용
-    }
-    last_exc = None
-    for attempt in range(1, tries + 1):
-        try:
-            r = requests.get(url, params=params, timeout=15)
-            r.raise_for_status()
-            obs = r.json().get("observations", [])
-            for o in obs:
-                v = (o.get("value") or "").strip()
-                if v and v != ".":
-                    return o.get("date"), float(v)
-            raise ValueError(f"No numeric observations for {series_id}")
-        except Exception as e:
-            last_exc = e
-            time.sleep(sleep_base * attempt)
-    raise last_exc
-
-
-def fred_latest_value_csv(series_id: str, tries: int = 3, sleep_base: float = 1.0):
-    """
-    (폴백) FRED CSV에서 최신 유효값 가져오기.
-    """
-    url = f"https://fred.stlouisfed.org/graph/fredgraph.csv?id={series_id}"
+    base = "https://fred.stlouisfed.org/graph/fredgraph.csv"
+    params = {"id": ",".join(series_ids)}
     headers = {"User-Agent": "Mozilla/5.0", "Accept": "text/csv"}
+
     last_exc = None
     for attempt in range(1, tries + 1):
         try:
-            r = requests.get(url, headers=headers, timeout=15)
+            r = requests.get(base, params=params, headers=headers, timeout=20)
             r.raise_for_status()
             rows = list(csv.DictReader(io.StringIO(r.text)))
-            for row in rows:  # CSV는 최신이 아래쪽이기도 해서 한번 더 스캔
-                pass
+            # 뒤에서부터 올라가며 시리즈별 최신 유효값 찾기
+            latest = {sid: (None, None) for sid in series_ids}
             for row in reversed(rows):
-                raw = (row.get(series_id) or "").strip()
-                if raw and raw != ".":
-                    return row.get("DATE"), float(raw)
-            raise ValueError(f"No numeric observations for {series_id}")
+                for sid in series_ids:
+                    if latest[sid][1] is not None:
+                        continue  # 이미 찾음
+                    raw = (row.get(sid) or "").strip()
+                    if raw and raw != ".":
+                        latest[sid] = (row.get("DATE"), float(raw))
+                # 전부 찾았으면 종료
+                if all(v[1] is not None for v in latest.values()):
+                    break
+
+            # 하나라도 못 찾은 시리즈가 있으면 에러
+            missing = [sid for sid, v in latest.items() if v[1] is None]
+            if missing:
+                raise ValueError(f"No numeric observations for series: {missing}")
+
+            return latest
         except Exception as e:
             last_exc = e
             time.sleep(sleep_base * attempt)
+
     raise last_exc
 
 
 def get_buffett_indicator():
     """
     버핏지수(근사) ≈ (Wilshire 5000 / 미국 명목 GDP) * 100
-    - Wilshire: 우선 'WILL5000INDFC' → 실패시 'WILL5000IND' → 'WILL5000PR'
+    - Wilshire 후보: 'WILL5000INDFC' → 실패시 'WILL5000IND' → 'WILL5000PR'
     - GDP: 'GDP' (분기, 십억달러, SAAR)
     """
-    try:
-        wilshire_candidates = ["WILL5000INDFC", "WILL5000IND", "WILL5000PR"]
+    wilshire_candidates = ["WILL5000INDFC", "WILL5000IND", "WILL5000PR"]
+    last_error = None
 
-        wil_date = wil_val = None
-        # 1) API 우선 시도
-        for sid in wilshire_candidates:
-            try:
-                wil_date, wil_val = fred_latest_value_api(sid)
-                break
-            except Exception:
-                continue
-        # 2) API 모두 실패 시 CSV 폴백
-        if wil_val is None:
-            for sid in wilshire_candidates:
-                try:
-                    wil_date, wil_val = fred_latest_value_csv(sid)
-                    break
-                except Exception:
-                    continue
-
-        if wil_val is None:
-            return "📐 버핏지수: 데이터 없음"
-
-        # GDP도 API 우선, 실패 시 CSV
+    for sid in wilshire_candidates:
         try:
-            gdp_date, gdp_val = fred_latest_value_api("GDP")
-        except Exception:
-            gdp_date, gdp_val = fred_latest_value_csv("GDP")
+            data = fred_latest_values_csv([sid, "GDP"])
+            (wil_date, wil_val) = data[sid]
+            (gdp_date, gdp_val) = data["GDP"]
 
-        # 계산 (지수/단위 차이로 절대 정확치는 아니지만 방향성은 반영)
-        ratio = (wil_val / gdp_val) * 100.0
+            # 계산 (단위 차이가 있어 절대치보단 방향성 지표로 보세요)
+            ratio = (wil_val / gdp_val) * 100.0
 
-        if ratio < 75:
-            label = "저평가 구간"
-        elif ratio < 90:
-            label = "약간 저평가"
-        elif ratio < 115:
-            label = "적정 범위"
-        elif ratio < 135:
-            label = "약간 고평가"
-        else:
-            label = "고평가 경고"
+            if ratio < 75:
+                label = "저평가 구간"
+            elif ratio < 90:
+                label = "약간 저평가"
+            elif ratio < 115:
+                label = "적정 범위"
+            elif ratio < 135:
+                label = "약간 고평가"
+            else:
+                label = "고평가 경고"
 
-        return (
-            f"📐 버핏지수(근사): {ratio:.0f}% — {label}\n"
-            f"    · Wilshire: {wil_val:,.0f} (기준 {wil_date})\n"
-            f"    · GDP: {gdp_val:,.0f} (기준 {gdp_date})"
-        )
+            return (
+                f"📐 버핏지수(근사): {ratio:.0f}% — {label}\n"
+                f"    · Wilshire: {wil_val:,.0f} (기준 {wil_date})\n"
+                f"    · GDP: {gdp_val:,.0f} (기준 {gdp_date})"
+            )
+        except Exception as e:
+            last_error = e
+            continue
 
-    except Exception as e:
-        print("[WARN] Buffett indicator error:", repr(e))
-        return "📐 버핏지수: 데이터 없음"
-
+    # 여기까지 오면 모든 후보 실패
+    print("[WARN] Buffett indicator error:", repr(last_error))
+    return "📐 버핏지수: 데이터 없음"
 
 
 
