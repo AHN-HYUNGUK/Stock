@@ -235,6 +235,7 @@ def _fred_csv_latest_combined(series_ids, tries: int = 2):
 def _fred_csv_latest_single(series_id: str, tries: int = 2):
     """
     downloaddata CSV 단일 시리즈 폴백.
+    NOTE: 이 CSV의 컬럼은 DATE, VALUE 이므로 'VALUE'를 읽어야 함!
     """
     url = f"https://fred.stlouisfed.org/series/{series_id}/downloaddata/{series_id}.csv"
     headers = {"User-Agent": "Mozilla/5.0", "Accept": "text/csv"}
@@ -245,7 +246,7 @@ def _fred_csv_latest_single(series_id: str, tries: int = 2):
             r.raise_for_status()
             rows = list(csv.DictReader(io.StringIO(r.text)))
             for row in reversed(rows):
-                raw = (row.get(series_id) or "").strip()
+                raw = (row.get("VALUE") or "").strip()  # ✅ 핵심 수정: 'VALUE'
                 if raw and raw != ".":
                     return row.get("DATE"), float(raw)
             raise ValueError(f"No numeric observations for {series_id}")
@@ -256,15 +257,11 @@ def _fred_csv_latest_single(series_id: str, tries: int = 2):
     return None
 
 
+
 def fred_latest_values_resilient(series_ids, api_key: str | None):
-    """
-    1) (있다면) FRED 공식 API로 각 시리즈 최신값
-    2) 실패 시 fredgraph.csv로 일괄
-    3) 그래도 실패 시 downloaddata 단일 CSV로 각각
-    """
     result = {}
 
-    # 1) API 경로 (옵션)
+    # 1) API 경로
     if api_key:
         api_ok = True
         for sid in series_ids:
@@ -274,22 +271,24 @@ def fred_latest_values_resilient(series_ids, api_key: str | None):
                 break
             result[sid] = val
         if api_ok:
+            print("[BUFFETT] used: FRED API")
             return result
-        # 일부 실패 → 아래 CSV 폴백으로 전체 다시 시도
 
     # 2) fredgraph.csv
     combined = _fred_csv_latest_combined(series_ids)
     if combined:
+        print("[BUFFETT] used: fredgraph.csv")
         return combined
 
-    # 3) downloaddata 단일
+    # 3) downloaddata CSV (단일)
     for sid in series_ids:
         val = _fred_csv_latest_single(sid)
         if val is None:
-            # 끝까지 실패
             return None
         result[sid] = val
+    print("[BUFFETT] used: downloaddata CSV (single)")
     return result
+
 
 
 def get_buffett_indicator():
