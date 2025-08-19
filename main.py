@@ -7,32 +7,40 @@ import schedule
 import time
 from bs4 import BeautifulSoup
 from playwright.sync_api import sync_playwright, TimeoutError as PlaywrightTimeoutError
-import csv, io, json  # FRED/TwelveData 파싱용
+import csv, io, json
 
-# ───────────────────────── 공통 HTTP 설정 ─────────────────────────
+# ───────────────────────── 공통 HTTP 설정 / 디버그 ─────────────────────────
 HTTP_HEADERS = {
     "User-Agent": "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 "
                   "(KHTML, like Gecko) Chrome/124.0 Safari/537.36",
     "Accept": "application/json, text/csv;q=0.9,*/*;q=0.8",
 }
-# 잘못 설정된 시스템 프록시 무시 (host='https' 같은 오류 방지)
+HTTP_DEBUG = True  # ← 요청 URL 로깅
+# 잘못된 시스템 프록시 무시
 for k in ("HTTP_PROXY", "HTTPS_PROXY", "http_proxy", "https_proxy"):
     os.environ.pop(k, None)
 os.environ.setdefault("NO_PROXY", "*")
 
-# requests 전용 세션: 환경변수 무시 + 프록시 미사용
 S = requests.Session()
 S.trust_env = False
 S.headers.update(HTTP_HEADERS)
 _DEF_PROXIES = {"http": None, "https": None}
 
 def http_get(url, *, params=None, timeout=20):
-    # 모든 GET은 이 함수로 → 프록시/환경변수 무시
+    if HTTP_DEBUG:
+        # 안전하게 실제 최종 URL 미리 로그
+        try:
+            from requests.models import PreparedRequest
+            pr = PreparedRequest()
+            pr.prepare_url(url, params)
+            print(f"[HTTP GET] {pr.url}")
+        except Exception:
+            print(f"[HTTP GET] {url} {params if params else ''}")
     r = S.get(url, params=params, timeout=timeout, proxies=_DEF_PROXIES, allow_redirects=True)
     r.raise_for_status()
     return r
 
-# (dotenv 안 쓰면 그대로 두세요)
+# (dotenv 안 쓰면 그대로)
 load_dotenv = None
 
 # ── 환경 변수 ─────────────────────────────────────────────
@@ -42,7 +50,8 @@ EXCHANGE_KEY    = os.environ['EXCHANGEAPI']
 TWELVEDATA_API  = os.environ["TWELVEDATA_API"]
 TELEGRAM_URL    = f"https://api.telegram.org/bot{TOKEN}/sendMessage"
 today           = datetime.datetime.now().strftime('%Y년 %m월 %d일')
-FRED_API_KEY    = os.getenv("FRED_API_KEY")  # 없어도 CSV 폴백으로 동작
+FRED_API_KEY    = os.getenv("FRED_API_KEY")  # 없어도 동작
+USE_FRED_API    = False  # ← JSON API 경로 완전 비활성화 (CSV만 사용)
 
 # ── 지표/시세 수집 ────────────────────────────────────────
 def get_us_indices():
@@ -176,34 +185,7 @@ def get_fear_greed_index():
         print("[ERROR] 공포·탐욕 지수 예외:", e)
         return "📌 공포·탐욕 지수: 가져오기 실패"
 
-# ── FRED 헬퍼 (API → fredgraph.csv → downloaddata CSV 폴백) ─────
-def _fred_api_latest(series_id: str, api_key: str | None, tries: int = 2):
-    if not api_key:
-        return None
-    url = "https://api.stlouisfed.org/fred/series/observations"
-    params = {
-        "series_id": series_id,
-        "api_key": api_key,
-        "file_type": "json",
-        "sort_order": "desc",
-        "observation_start": "1990-01-01",
-        "limit": 1000,
-    }
-    last_exc = None
-    for attempt in range(1, tries + 1):
-        try:
-            j = http_get(url, params=params).json()
-            for obs in j.get("observations", []):
-                raw = (obs.get("value") or "").strip()
-                if raw and raw != ".":
-                    return obs.get("date"), float(raw)
-            raise ValueError(f"[FRED API] No numeric observations for {series_id}")
-        except Exception as e:
-            last_exc = e
-            time.sleep(0.5 * attempt)
-    print(f"[WARN] FRED API fail {series_id}:", repr(last_exc))
-    return None
-
+# ── FRED: CSV 전용 경로 (API 비활성화) ───────────────────────
 def _fred_csv_latest_combined(series_ids, tries: int = 2):
     base = "https://fred.stlouisfed.org/graph/fredgraph.csv"
     params = {"id": ",".join(series_ids)}
@@ -249,15 +231,13 @@ def _fred_csv_latest_single(series_id: str, tries: int = 2):
     return None
 
 def fred_latest_one(series_id: str, api_key: str | None):
-    val = _fred_api_latest(series_id, api_key)
-    if val:
-        return val
+    # JSON API 완전 비활성화
     combo = _fred_csv_latest_combined([series_id])
     if combo and combo.get(series_id) and combo[series_id][1] is not None:
         return combo[series_id]
     return _fred_csv_latest_single(series_id)
 
-# ── 버핏지수 (시총/GDP 직접 시리즈 사용 + nowcast) ──────────────
+# ── 버핏지수 (CSV + nowcast) ─────────────────────────────
 def _classify_buffett(pct: float) -> str:
     if pct < 75: return "저평가 구간"
     elif pct < 90: return "약간 저평가"
@@ -282,8 +262,7 @@ def _td_get_json(endpoint: str, params: dict, tries: int = 3, sleep_sec: float =
         try:
             j = http_get(url, params=params).json()
             if isinstance(j, dict) and j.get("status") == "error":
-                last = j.get("message")
-                time.sleep(sleep_sec); continue
+                last = j.get("message"); time.sleep(sleep_sec); continue
             return j
         except Exception as e:
             last = repr(e); time.sleep(sleep_sec)
@@ -318,12 +297,9 @@ def get_buffett_indicator():
     """
     📐 버핏지수(현재 추정 + 연간 확정)
     - 확정치: FRED(World Bank) DDDM01USA156NWDB (%)
-    - 현재 추정(nowcast):
-        nowcast ≈ base_pct × (VTI_latest / VTI_base) / (GDP_latest / GDP_base)
+    - nowcast: base_pct × (VTI_latest / VTI_base) / (GDP_latest / GDP_base)
     """
-    api_key = FRED_API_KEY
-
-    base = fred_latest_one("DDDM01USA156NWDB", api_key)
+    base = fred_latest_one("DDDM01USA156NWDB", FRED_API_KEY)
     if not base:
         print("[WARN] Buffett (DDDM01USA156NWDB) fetch failed")
         return "📐 버핏지수: 데이터 없음"
@@ -332,7 +308,7 @@ def get_buffett_indicator():
     base_line = f"    · 연간 확정치: {base_pct:.0f}% (기준연도 {base_year})"
 
     try:
-        gdp_latest = fred_latest_one("GDP", api_key)
+        gdp_latest = fred_latest_one("GDP", FRED_API_KEY)
         gdp_base   = fred_value_for_year("GDP", base_year)
         if not gdp_latest or not gdp_base:
             raise RuntimeError("GDP 데이터 부족")
@@ -351,7 +327,6 @@ def get_buffett_indicator():
         head = f"📐 버핏지수(현재 추정): {nowcast_pct:.0f}% — {_classify_buffett(nowcast_pct)}"
         tail = f"{base_line}\n    · 보정계수: VTI×{mkt_factor:.2f} / GDP×{gdp_factor:.2f}"
         return f"{head}\n{tail}"
-
     except Exception as e:
         print("[WARN] Buffett nowcast failed:", repr(e))
         return f"📐 버핏지수(연간 확정치): {base_pct:.0f}% — {_classify_buffett(base_pct)}\n{base_line}"
@@ -375,6 +350,7 @@ def send_to_telegram():
     for msg in (part1, part2):
         if len(msg) > 4000:
             msg = msg[:3990] + "\n(※ 일부 생략됨)"
+        # 텔레그램은 GET/POST 둘 다 가능. 여기서는 http_get으로 통일(프록시 무시)
         res = http_get(TELEGRAM_URL, params={"chat_id": CHAT_ID, "text": msg})
         print("✅ 응답 코드:", res.status_code, "| 📨", res.text)
 
