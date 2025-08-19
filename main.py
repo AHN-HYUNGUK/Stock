@@ -1,3 +1,5 @@
+# main.py
+
 import os
 import datetime
 import requests
@@ -7,19 +9,22 @@ from bs4 import BeautifulSoup
 from googletrans import Translator
 from playwright.sync_api import sync_playwright
 import openai
+import csv, io  # ← 버핏지수 계산용(FRED CSV 파싱)
 
-load_dotenv = None  # dotenv 로딩이 필요 없으면 주석 처리
+# (dotenv 사용 안 하면 그대로 두세요)
+load_dotenv = None
 
-# 환경 변수
+# ── 환경 변수 ─────────────────────────────────────────────
 TOKEN           = os.environ['TOKEN']
 CHAT_ID         = os.environ['CHAT_ID']
 EXCHANGE_KEY    = os.environ['EXCHANGEAPI']
-TWELVE_API_KEY  = os.environ["TWELVEDATA_API"]
+TWELVEDATA_API  = os.environ["TWELVEDATA_API"]
 TELEGRAM_URL    = f"https://api.telegram.org/bot{TOKEN}/sendMessage"
 today           = datetime.datetime.now().strftime('%Y년 %m월 %d일')
 
 translator = Translator()
 
+# ── 지표/시세 수집 ────────────────────────────────────────
 def get_us_indices():
     url = "https://www.investing.com/indices/major-indices"
     headers = {"User-Agent": "Mozilla/5.0"}
@@ -35,7 +40,7 @@ def get_us_indices():
             diff = now - prev
             pct  = diff / prev * 100
             icon = "▲" if diff > 0 else "▼" if diff < 0 else "-"
-            out.append(f"{name}: {now:,.2f} {icon}{abs(diff):.2f} ({pct:+.2f}%)")
+            out.append(f"{name}: {now:,.2f} {icon}{abs(diff):,.2f} ({pct:+.2f}%)")
         except:
             out.append(f"{name}: 데이터 오류")
     return "\n".join(out)
@@ -68,13 +73,13 @@ def get_sector_etf_changes(api_key):
 
 def get_stock_prices(api_key):
     symbols = {
-    "Tesla (TSLA)": "TSLA",
-    "Nvidia (NVDA)": "NVDA",
-    "Apple (AAPL)": "AAPL",
-    "Microsoft (MSFT)": "MSFT",
-    "Amazon (AMZN)": "AMZN",
-    "Meta (META)": "META",
-    "Berkshire Hathaway (BRK.B)": "BRK.B"
+        "Tesla (TSLA)": "TSLA",
+        "Nvidia (NVDA)": "NVDA",
+        "Apple (AAPL)": "AAPL",
+        "Microsoft (MSFT)": "MSFT",
+        "Amazon (AMZN)": "AMZN",
+        "Meta (META)": "META",
+        "Berkshire Hathaway (BRK.B)": "BRK.B"
     }
     out = []
     for name, sym in symbols.items():
@@ -89,7 +94,6 @@ def get_stock_prices(api_key):
             out.append(f"• {name}: 정보 없음")
     return "📌 주요 종목 시세:\n" + "\n".join(out)
 
-
 def get_korean_stock_price(stock_code, name):
     try:
         url = f"https://finance.naver.com/item/sise.naver?code={stock_code}"
@@ -102,7 +106,6 @@ def get_korean_stock_price(stock_code, name):
         return f"• {name}: {int(price):,}원 {icon}{change.replace('-', '')} ({rate})"
     except:
         return f"• {name}: 정보 없음"
-
 
 def fetch_us_market_news_titles():
     try:
@@ -119,6 +122,7 @@ def fetch_us_market_news_titles():
 def fetch_media_press_ranking_playwright(press_id="215", count=10):
     url = f"https://media.naver.com/press/{press_id}/ranking"
     result = f"📌 언론사 {press_id} 랭킹 뉴스 TOP {count}\n"
+    anchors = []
     with sync_playwright() as p:
         browser = p.chromium.launch(args=["--no-sandbox"])
         page = browser.new_page()
@@ -140,7 +144,6 @@ def fetch_media_press_ranking_playwright(press_id="215", count=10):
         browser.close()
     return result if anchors else f"• 현재 시점에 해당 언론사의 랭킹 뉴스가 없습니다.\n"
 
-
 def get_fear_greed_index():
     try:
         url = "https://api.alternative.me/fng/?limit=1"
@@ -153,17 +156,63 @@ def get_fear_greed_index():
         print("[ERROR] 공포·탐욕 지수 예외:", e)
         return "📌 공포·탐욕 지수: 가져오기 실패"
 
+# ── 버핏지수 (신규) ───────────────────────────────────────
+def fred_latest_value(series_id: str, timeout: int = 10):
+    """
+    FRED의 공개 CSV(fredgraph.csv)에서 최신 값을 읽어온다. API키 불필요.
+    값이 '.'(결측)인 행은 건너뜀.
+    """
+    url = f"https://fred.stlouisfed.org/graph/fredgraph.csv?id={series_id}"
+    try:
+        r = requests.get(url, timeout=timeout)
+        r.raise_for_status()
+        latest = None
+        for row in csv.DictReader(io.StringIO(r.text)):
+            v = row.get(series_id, "")
+            if v and v != '.':
+                latest = float(v)
+        return latest
+    except Exception as e:
+        print(f"[WARN] FRED fetch failed for {series_id}:", e)
+        return None
+
+def get_buffett_indicator():
+    """
+    버핏지수 ≈ (Wilshire 5000 Total Market Full Cap Index / 미국 명목 GDP) * 100
+    - Wilshire 5000: 'WILL5000INDFC'
+    - GDP(명목, 분기): 'GDP' (단위: 십억 달러)
+    ※ 절대단위가 완벽히 일치하는 것은 아니므로 근사치로 안내.
+    """
+    wil = fred_latest_value("WILL5000INDFC")  # Wilshire 5000 Full Cap Index
+    gdp = fred_latest_value("GDP")            # Nominal GDP (Billions of $)
+    if wil is None or gdp is None:
+        return "📐 버핏지수: 데이터 없음"
+
+    ratio = (wil / gdp) * 100.0  # 근사 계산
+    if ratio < 75:
+        label = "저평가 구간"
+    elif ratio < 90:
+        label = "약간 저평가"
+    elif ratio < 115:
+        label = "적정 범위"
+    elif ratio < 135:
+        label = "약간 고평가"
+    else:
+        label = "고평가 경고"
+    return f"📐 버핏지수(근사): {ratio:.0f}% — {label}"
+
+# ── 메시지 구성/전송 ──────────────────────────────────────
 def build_message():
     return (
         f"📈 [{today}] 뉴스 요약 + 시장 지표\n\n"
         f"📊 미국 주요 지수:\n{get_us_indices()}\n\n"
         f"💱 환율:\n{get_exchange_rates()}\n\n"
-        f"📉 미국 섹터별 지수 변화:\n{get_sector_etf_changes(TWELVE_API_KEY)}\n\n"
+        f"📉 미국 섹터별 지수 변화:\n{get_sector_etf_changes(TWELVEDATA_API)}\n\n"
+        f"{get_buffett_indicator()}\n"         # ← 버핏지수 추가
         f"{get_fear_greed_index()}\n\n"
-        f"{get_stock_prices(TWELVE_API_KEY)}\n\n"
+        f"{get_stock_prices(TWELVEDATA_API)}\n\n"
         f"📰 세계 언론사 랭킹 뉴스 (press 074):\n{fetch_media_press_ranking_playwright('074', 3)}"
     )
-
 
 def send_to_telegram():
     part1 = build_message()
@@ -178,7 +227,7 @@ def send_to_telegram():
         )
         print("✅ 응답 코드:", res.status_code, "| 📨", res.text)
 
-# 매일 07:00, 15:00 KST 실행
+# ── 스케줄러 ──────────────────────────────────────────────
 schedule.every().day.at("07:00").do(send_to_telegram)
 schedule.every().day.at("15:00").do(send_to_telegram)
 
