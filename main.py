@@ -158,11 +158,48 @@ def get_fear_greed_index():
         print("[ERROR] 공포·탐욕 지수 예외:", e)
         return "📌 공포·탐욕 지수: 가져오기 실패"
 
-# ── 버핏지수 (신규) ───────────────────────────────────────
-ef fred_latest_values_csv(series_ids, tries: int = 3, sleep_base: float = 1.0):
+# ── 버핏지수 (신규 / 견고 폴백 버전) ─────────────────────────────
+import csv, io, time
+
+def _fred_api_latest(series_id: str, api_key: str | None, tries: int = 2):
     """
-    FRED CSV에서 여러 시리즈를 한 번에 받아, 각 시리즈의 '가장 최신 유효값(숫자)'을 반환.
-    return: {series_id: (date_str, float_value)}
+    FRED 공식 JSON API로 최신 유효값(숫자)을 가져옴.
+    키가 없으면 None 반환하여 상위 로직에서 CSV 폴백.
+    """
+    if not api_key:
+        return None  # 키 없으면 이 경로는 건너뜀
+
+    url = "https://api.stlouisfed.org/fred/series/observations"
+    params = {
+        "series_id": series_id,
+        "api_key": api_key,
+        "file_type": "json",
+        "sort_order": "desc",      # 최신부터
+        "observation_start": "1990-01-01",
+        "limit": 1000
+    }
+    last_exc = None
+    for attempt in range(1, tries + 1):
+        try:
+            r = requests.get(url, params=params, timeout=20)
+            r.raise_for_status()
+            j = r.json()
+            for obs in j.get("observations", []):
+                raw = (obs.get("value") or "").strip()
+                if raw and raw != ".":
+                    return obs.get("date"), float(raw)
+            raise ValueError(f"[FRED API] No numeric observations for {series_id}")
+        except Exception as e:
+            last_exc = e
+            time.sleep(0.5 * attempt)
+    print(f"[WARN] FRED API fail {series_id}:", repr(last_exc))
+    return None
+
+
+def _fred_csv_latest_combined(series_ids, tries: int = 2):
+    """
+    fredgraph.csv?id=A,B 방식으로 여러 시리즈를 한번에 요청해
+    각 시리즈의 최신 유효값을 반환.
     """
     base = "https://fred.stlouisfed.org/graph/fredgraph.csv"
     params = {"id": ",".join(series_ids)}
@@ -174,30 +211,85 @@ ef fred_latest_values_csv(series_ids, tries: int = 3, sleep_base: float = 1.0):
             r = requests.get(base, params=params, headers=headers, timeout=20)
             r.raise_for_status()
             rows = list(csv.DictReader(io.StringIO(r.text)))
-            # 뒤에서부터 올라가며 시리즈별 최신 유효값 찾기
             latest = {sid: (None, None) for sid in series_ids}
             for row in reversed(rows):
                 for sid in series_ids:
                     if latest[sid][1] is not None:
-                        continue  # 이미 찾음
+                        continue
                     raw = (row.get(sid) or "").strip()
                     if raw and raw != ".":
                         latest[sid] = (row.get("DATE"), float(raw))
-                # 전부 찾았으면 종료
                 if all(v[1] is not None for v in latest.values()):
                     break
-
-            # 하나라도 못 찾은 시리즈가 있으면 에러
             missing = [sid for sid, v in latest.items() if v[1] is None]
             if missing:
                 raise ValueError(f"No numeric observations for series: {missing}")
-
             return latest
         except Exception as e:
             last_exc = e
-            time.sleep(sleep_base * attempt)
+            time.sleep(0.5 * attempt)
+    print("[WARN] fredgraph.csv fail:", repr(last_exc))
+    return None
 
-    raise last_exc
+
+def _fred_csv_latest_single(series_id: str, tries: int = 2):
+    """
+    downloaddata CSV 단일 시리즈 폴백.
+    """
+    url = f"https://fred.stlouisfed.org/series/{series_id}/downloaddata/{series_id}.csv"
+    headers = {"User-Agent": "Mozilla/5.0", "Accept": "text/csv"}
+    last_exc = None
+    for attempt in range(1, tries + 1):
+        try:
+            r = requests.get(url, headers=headers, timeout=20)
+            r.raise_for_status()
+            rows = list(csv.DictReader(io.StringIO(r.text)))
+            for row in reversed(rows):
+                raw = (row.get(series_id) or "").strip()
+                if raw and raw != ".":
+                    return row.get("DATE"), float(raw)
+            raise ValueError(f"No numeric observations for {series_id}")
+        except Exception as e:
+            last_exc = e
+            time.sleep(0.5 * attempt)
+    print(f"[WARN] downloaddata CSV fail {series_id}:", repr(last_exc))
+    return None
+
+
+def fred_latest_values_resilient(series_ids, api_key: str | None):
+    """
+    1) (있다면) FRED 공식 API로 각 시리즈 최신값
+    2) 실패 시 fredgraph.csv로 일괄
+    3) 그래도 실패 시 downloaddata 단일 CSV로 각각
+    """
+    result = {}
+
+    # 1) API 경로 (옵션)
+    if api_key:
+        api_ok = True
+        for sid in series_ids:
+            val = _fred_api_latest(sid, api_key)
+            if val is None:
+                api_ok = False
+                break
+            result[sid] = val
+        if api_ok:
+            return result
+        # 일부 실패 → 아래 CSV 폴백으로 전체 다시 시도
+
+    # 2) fredgraph.csv
+    combined = _fred_csv_latest_combined(series_ids)
+    if combined:
+        return combined
+
+    # 3) downloaddata 단일
+    for sid in series_ids:
+        val = _fred_csv_latest_single(sid)
+        if val is None:
+            # 끝까지 실패
+            return None
+        result[sid] = val
+    return result
 
 
 def get_buffett_indicator():
@@ -211,11 +303,13 @@ def get_buffett_indicator():
 
     for sid in wilshire_candidates:
         try:
-            data = fred_latest_values_csv([sid, "GDP"])
+            data = fred_latest_values_resilient([sid, "GDP"], os.getenv("FRED_API_KEY"))
+            if not data:
+                raise RuntimeError("All FRED paths failed")
+
             (wil_date, wil_val) = data[sid]
             (gdp_date, gdp_val) = data["GDP"]
 
-            # 계산 (단위 차이가 있어 절대치보단 방향성 지표로 보세요)
             ratio = (wil_val / gdp_val) * 100.0
 
             if ratio < 75:
@@ -238,10 +332,8 @@ def get_buffett_indicator():
             last_error = e
             continue
 
-    # 여기까지 오면 모든 후보 실패
     print("[WARN] Buffett indicator error:", repr(last_error))
     return "📐 버핏지수: 데이터 없음"
-
 
 
 
