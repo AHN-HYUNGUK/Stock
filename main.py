@@ -157,49 +157,57 @@ def get_fear_greed_index():
         return "📌 공포·탐욕 지수: 가져오기 실패"
 
 # ── 버핏지수 (신규) ───────────────────────────────────────
-def fred_latest_value(series_id: str, timeout: int = 10):
-    """
-    FRED의 공개 CSV(fredgraph.csv)에서 최신 값을 읽어온다. API키 불필요.
-    값이 '.'(결측)인 행은 건너뜀.
-    """
-    url = f"https://fred.stlouisfed.org/graph/fredgraph.csv?id={series_id}"
-    try:
-        r = requests.get(url, timeout=timeout)
-        r.raise_for_status()
-        latest = None
-        for row in csv.DictReader(io.StringIO(r.text)):
-            v = row.get(series_id, "")
-            if v and v != '.':
-                latest = float(v)
-        return latest
-    except Exception as e:
-        print(f"[WARN] FRED fetch failed for {series_id}:", e)
-        return None
-
 def get_buffett_indicator():
     """
-    버핏지수 ≈ (Wilshire 5000 Total Market Full Cap Index / 미국 명목 GDP) * 100
-    - Wilshire 5000: 'WILL5000INDFC'
-    - GDP(명목, 분기): 'GDP' (단위: 십억 달러)
-    ※ 절대단위가 완벽히 일치하는 것은 아니므로 근사치로 안내.
+    버핏지수(근사) ≈ (Wilshire 5000 Total Market Full Cap Index / 미국 명목 GDP) * 100
+    - Wilshire 5000: WILL5000INDFC
+    - GDP(명목, 분기 SAAR): GDP  (단위: 십억 달러)
     """
-    wil = fred_latest_value("WILL5000INDFC")  # Wilshire 5000 Full Cap Index
-    gdp = fred_latest_value("GDP")            # Nominal GDP (Billions of $)
-    if wil is None or gdp is None:
+    url = "https://fred.stlouisfed.org/graph/fredgraph.csv?id=WILL5000INDFC,GDP"
+    headers = {
+        "User-Agent": "Mozilla/5.0",
+        "Accept": "text/csv"
+    }
+    try:
+        r = requests.get(url, headers=headers, timeout=15)
+        r.raise_for_status()
+
+        rows = list(csv.DictReader(io.StringIO(r.text)))
+        latest = None
+        # 최신 행부터 거꾸로 보면서 두 값이 모두 숫자인 날짜를 찾는다
+        for row in reversed(rows):
+            a = (row.get("WILL5000INDFC") or "").strip()
+            g = (row.get("GDP") or "").strip()
+            if a and g and a != "." and g != ".":
+                wil = float(a)
+                gdp = float(g)  # billions of dollars (SAAR)
+                date = row.get("DATE")
+                latest = (wil, gdp, date)
+                break
+
+        if not latest:
+            return "📐 버핏지수: 데이터 없음"
+
+        wil, gdp, date = latest
+        ratio = (wil / gdp) * 100.0  # 근사 계산
+
+        if ratio < 75:
+            label = "저평가 구간"
+        elif ratio < 90:
+            label = "약간 저평가"
+        elif ratio < 115:
+            label = "적정 범위"
+        elif ratio < 135:
+            label = "약간 고평가"
+        else:
+            label = "고평가 경고"
+
+        return f"📐 버핏지수(근사): {ratio:.0f}% — {label} (기준: {date})"
+
+    except Exception as e:
+        print("[WARN] Buffett indicator error:", e)
         return "📐 버핏지수: 데이터 없음"
 
-    ratio = (wil / gdp) * 100.0  # 근사 계산
-    if ratio < 75:
-        label = "저평가 구간"
-    elif ratio < 90:
-        label = "약간 저평가"
-    elif ratio < 115:
-        label = "적정 범위"
-    elif ratio < 135:
-        label = "약간 고평가"
-    else:
-        label = "고평가 경고"
-    return f"📐 버핏지수(근사): {ratio:.0f}% — {label}"
 
 # ── 메시지 구성/전송 ──────────────────────────────────────
 def build_message():
