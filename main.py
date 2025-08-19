@@ -9,7 +9,7 @@ from bs4 import BeautifulSoup
 from googletrans import Translator
 from playwright.sync_api import sync_playwright
 import openai
-import csv, io  # ← 버핏지수 계산용(FRED CSV 파싱)
+import csv, io, json  # ← 버핏지수 계산용(FRED CSV 파싱)
 
 # (dotenv 사용 안 하면 그대로 두세요)
 load_dotenv = None
@@ -21,6 +21,8 @@ EXCHANGE_KEY    = os.environ['EXCHANGEAPI']
 TWELVEDATA_API  = os.environ["TWELVEDATA_API"]
 TELEGRAM_URL    = f"https://api.telegram.org/bot{TOKEN}/sendMessage"
 today           = datetime.datetime.now().strftime('%Y년 %m월 %d일')
+FRED_API_KEY   = os.getenv("FRED_API_KEY")
+
 
 translator = Translator()
 
@@ -159,48 +161,68 @@ def get_fear_greed_index():
 # ── 버핏지수 (신규) ───────────────────────────────────────
 def fred_latest_value(series_id: str, tries: int = 3, sleep_base: float = 1.0):
     """
-    FRED CSV에서 해당 시리즈의 '가장 최신 유효값'을 반환합니다.
-    - 최신 행이 '.'(결측)인 경우가 많아서 전체를 읽고 역순으로 첫 숫자 찾음
-    - 네트워크/일시 오류 대비 재시도
+    FRED에서 series의 '가장 최신 유효값'을 가져온다.
+    1) FRED JSON API (키 있으면) 우선
+    2) 실패 시 CSV로 폴백
+    둘 다 최신 행이 '.'인 경우가 흔하므로 역순 스캔으로 숫자 찾음.
     반환: (date_str, float_value)
     """
-    url = f"https://fred.stlouisfed.org/graph/fredgraph.csv?id={series_id}"
+    # 1) JSON API (권장)
+    if FRED_API_KEY:
+        url = (
+            "https://api.stlouisfed.org/fred/series/observations"
+            f"?series_id={series_id}&api_key={FRED_API_KEY}&file_type=json"
+        )
+        last_exc = None
+        for attempt in range(1, tries + 1):
+            try:
+                r = requests.get(url, timeout=15)
+                r.raise_for_status()
+                data = r.json()
+                obs = data.get("observations", [])
+                # 뒤에서부터 '.' 아닌 숫자 찾기
+                for o in reversed(obs):
+                    v = (o.get("value") or "").strip()
+                    if v and v != ".":
+                        return o.get("date"), float(v)
+                raise ValueError(f"No numeric observations for {series_id} (JSON)")
+            except Exception as e:
+                last_exc = e
+                time.sleep(sleep_base * attempt)
+        # JSON이 끝내 실패하면 CSV로 폴백 시도
+
+    # 2) CSV 폴백
+    url_csv = f"https://fred.stlouisfed.org/graph/fredgraph.csv?id={series_id}"
     headers = {"User-Agent": "Mozilla/5.0", "Accept": "text/csv"}
     last_exc = None
-
     for attempt in range(1, tries + 1):
         try:
-            r = requests.get(url, headers=headers, timeout=15)
+            r = requests.get(url_csv, headers=headers, timeout=15)
             r.raise_for_status()
             rows = list(csv.DictReader(io.StringIO(r.text)))
-            # 뒤에서부터 올라가며 '.' 아닌 숫자값을 찾는다
             for row in reversed(rows):
                 raw = (row.get(series_id) or "").strip()
                 if raw and raw != ".":
                     return row.get("DATE"), float(raw)
-            # 전부 '.' 이거나 빈 값이면 예외
-            raise ValueError(f"No numeric observations for {series_id}")
+            raise ValueError(f"No numeric observations for {series_id} (CSV)")
         except Exception as e:
             last_exc = e
-            # 점진적 대기 후 재시도
             time.sleep(sleep_base * attempt)
 
-    # 마지막 예외를 올림
     raise last_exc
 
 
 def get_buffett_indicator():
     """
     버핏지수(근사) ≈ (Wilshire 5000 / 미국 명목 GDP) * 100
-    - Wilshire 5000 Full Cap Index: 'WILL5000INDFC' 우선, 실패 시 'WILL5000IND', 'WILL5000PR' 순으로 대체
-    - GDP: 'GDP' (십억달러, 분기 SAAR)
-    주의: 지수와 GDP 단위 차이 때문에 '절대 정확'하진 않지만 방향성/수준은 잘 반영됩니다.
+    - Wilshire 5000 Full Cap Index: 'WILL5000INDFC' 우선, 실패 시 'WILL5000IND', 'WILL5000PR' 순서 폴백
+    - GDP: 'GDP' (십억달러, 분기 SAAR, 명목)
+    ※ 지수/단위 차이로 '절대 정확'은 아니지만 방향성/수준은 충분히 유효.
     """
     try:
         wilshire_candidates = ["WILL5000INDFC", "WILL5000IND", "WILL5000PR"]
         wil_date = wil_val = None
 
-        # Wilshire 시리즈 순차 시도
         for sid in wilshire_candidates:
             try:
                 wil_date, wil_val = fred_latest_value(sid)
@@ -211,7 +233,6 @@ def get_buffett_indicator():
         if wil_val is None:
             return "📐 버핏지수: 데이터 없음"
 
-        # GDP
         gdp_date, gdp_val = fred_latest_value("GDP")
 
         ratio = (wil_val / gdp_val) * 100.0
@@ -233,9 +254,9 @@ def get_buffett_indicator():
             f"    · GDP: {gdp_val:,.0f} (기준 {gdp_date})"
         )
     except Exception as e:
-        # 깔끔하게 텔레그램에는 '데이터 없음'만 보내되, 로그로 원인 남김
         print("[WARN] Buffett indicator error:", repr(e))
         return "📐 버핏지수: 데이터 없음"
+
 
 
 
