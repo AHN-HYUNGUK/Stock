@@ -303,10 +303,9 @@ def get_buffett_indicator():
 
     for sid in wilshire_candidates:
         try:
-            data = fred_latest_values_resilient([sid, "GDP"], os.getenv("FRED_API_KEY"))
+            data = fred_latest_values_resilient([sid, "GDP"], FRED_API_KEY)
             if not data:
                 raise RuntimeError("All FRED paths failed")
-
             (wil_date, wil_val) = data[sid]
             (gdp_date, gdp_val) = data["GDP"]
 
