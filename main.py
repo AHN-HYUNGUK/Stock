@@ -6,9 +6,9 @@ import requests
 import schedule
 import time
 from bs4 import BeautifulSoup
-from googletrans import Translator
 from playwright.sync_api import sync_playwright, TimeoutError as PlaywrightTimeoutError
-import openai  # (미사용이면 제거해도 무방)
+from googletrans import Translator
+import openai  # (미사용이면 제거 가능)
 import csv, io, json  # FRED/시세 CSV/JSON 파싱용
 
 HTTP_HEADERS = {
@@ -27,7 +27,7 @@ EXCHANGE_KEY    = os.environ['EXCHANGEAPI']
 TWELVEDATA_API  = os.environ["TWELVEDATA_API"]
 TELEGRAM_URL    = f"https://api.telegram.org/bot{TOKEN}/sendMessage"
 today           = datetime.datetime.now().strftime('%Y년 %m월 %d일')
-FRED_API_KEY    = os.getenv("FRED_API_KEY")  # 없어도 동작(CSV 폴백)
+FRED_API_KEY    = os.getenv("FRED_API_KEY")  # 없어도 CSV 폴백 경로로 동작
 
 translator = Translator()
 
@@ -100,19 +100,6 @@ def get_stock_prices(api_key):
             out.append(f"• {name}: 정보 없음")
     return "📌 주요 종목 시세:\n" + "\n".join(out)
 
-def get_korean_stock_price(stock_code, name):
-    try:
-        url = f"https://finance.naver.com/item/sise.naver?code={stock_code}"
-        res = requests.get(url, headers=HTTP_HEADERS, timeout=20)
-        soup = BeautifulSoup(res.text, "html.parser")
-        price = soup.select_one("strong#_nowVal").text.replace(",", "")
-        change = soup.select_one("span#_change").text.strip().replace(",", "")
-        rate = soup.select_one("span#_rate").text.strip()
-        icon = "▲" if "-" not in change else "▼"
-        return f"• {name}: {int(price):,}원 {icon}{change.replace('-', '')} ({rate})"
-    except Exception:
-        return f"• {name}: 정보 없음"
-
 def fetch_us_market_news_titles():
     try:
         url = "https://finance.yahoo.com/"
@@ -175,7 +162,6 @@ def get_fear_greed_index():
 
 # ── FRED 헬퍼 (API → fredgraph.csv → downloaddata CSV 폴백) ─────
 def _fred_api_latest(series_id: str, api_key: str | None, tries: int = 2):
-    """FRED 공식 JSON API로 최신 유효값(숫자) 가져오기."""
     if not api_key:
         return None
     url = "https://api.stlouisfed.org/fred/series/observations"
@@ -205,7 +191,6 @@ def _fred_api_latest(series_id: str, api_key: str | None, tries: int = 2):
     return None
 
 def _fred_csv_latest_combined(series_ids, tries: int = 2):
-    """fredgraph.csv?id=A,B… 일괄 요청."""
     base = "https://fred.stlouisfed.org/graph/fredgraph.csv"
     params = {"id": ",".join(series_ids)}
     last_exc = None
@@ -235,7 +220,6 @@ def _fred_csv_latest_combined(series_ids, tries: int = 2):
     return None
 
 def _fred_csv_latest_single(series_id: str, tries: int = 2):
-    """downloaddata 단일 시리즈 폴백. (헤더는 DATE, VALUE)"""
     url = f"https://fred.stlouisfed.org/series/{series_id}/downloaddata/{series_id}.csv"
     last_exc = None
     for attempt in range(1, tries + 1):
@@ -255,7 +239,6 @@ def _fred_csv_latest_single(series_id: str, tries: int = 2):
     return None
 
 def fred_latest_one(series_id: str, api_key: str | None):
-    """한 개 시리즈를 ①API → ②fredgraph.csv → ③downloaddata 순으로 시도."""
     val = _fred_api_latest(series_id, api_key)
     if val:
         return val
@@ -264,7 +247,7 @@ def fred_latest_one(series_id: str, api_key: str | None):
         return combo[series_id]
     return _fred_csv_latest_single(series_id)
 
-# ── 버핏지수: 시장측정(1순위 SPY/Stooq, 2순위 VTI/TwelveData) ─────
+# ── 버핏지수 (시장×GDP 보정) 헬퍼 ───────────────────────────────
 def _classify_buffett(pct: float) -> str:
     if pct < 75:
         return "저평가 구간"
@@ -277,55 +260,22 @@ def _classify_buffett(pct: float) -> str:
     else:
         return "고평가 경고"
 
-def get_spy_latest_and_ref_from_stooq(base_year: int):
-    """
-    Stooq의 SPY 일별 CSV 사용(무료/무인증).
-    - 최신값: CSV 마지막 행의 종가
-    - 기준값: [base_year-12-01, base_year+1-01-15] 범위 내 '마지막 거래일' 종가
-    """
-    url = "https://stooq.com/q/d/l/?s=spy.us&i=d"
+def fred_value_for_year(series_id: str, year: int):
+    url = f"https://fred.stlouisfed.org/series/{series_id}/downloaddata/{series_id}.csv"
     r = requests.get(url, headers=HTTP_HEADERS, timeout=20)
     r.raise_for_status()
     rows = list(csv.DictReader(io.StringIO(r.text)))
-    if not rows or "Date" not in rows[0] or "Close" not in rows[0]:
-        raise RuntimeError("Unexpected Stooq CSV schema")
-
-    # 최신 종가
-    last = rows[-1]
-    latest_close = float(last["Close"])
-
-    # 기준 구간 내 마지막 거래일
-    start = datetime.date(base_year, 12, 1)
-    end   = datetime.date(base_year + 1, 1, 15)
-    base_close = None
-    base_date  = None
-
     for row in reversed(rows):
-        d = datetime.date.fromisoformat(row["Date"])
-        if start <= d <= end:
-            base_close = float(row["Close"])
-            base_date = d.isoformat()
-            break
-    # 폴백: 12/31 이전 마지막 거래일
-    if base_close is None:
-        for row in reversed(rows):
-            d = datetime.date.fromisoformat(row["Date"])
-            if d <= datetime.date(base_year, 12, 31):
-                base_close = float(row["Close"])
-                base_date = d.isoformat()
-                break
-
-    if base_close is None:
-        raise RuntimeError("SPY base price not found")
-
-    print(f"[BUFFETT] SPY latest={latest_close}, base({base_date})={base_close}")
-    return latest_close, base_close, base_date
+        d = (row.get("DATE") or "")
+        v = (row.get("VALUE") or "").strip()
+        if d.startswith(f"{year}-") and v and v != ".":
+            return d, float(v)
+    return None
 
 def _td_get_json(endpoint: str, params: dict, tries: int = 3, sleep_sec: float = 0.8):
-    """TwelveData 호출 헬퍼: status:error면 재시도."""
     url = f"https://api.twelvedata.com/{endpoint}"
     last = None
-    for i in range(tries):
+    for _ in range(tries):
         try:
             r = requests.get(url, params=params, headers=HTTP_HEADERS, timeout=20)
             r.raise_for_status()
@@ -340,10 +290,8 @@ def _td_get_json(endpoint: str, params: dict, tries: int = 3, sleep_sec: float =
             time.sleep(sleep_sec)
     raise RuntimeError(f"TwelveData {endpoint} failed: {last}")
 
-def get_vti_latest_and_ref_from_twelvedata(base_year: int, api_key: str):
-    """
-    VTI(시장) 가격: TwelveData 사용 (요금/쿼터 이슈 시 실패 가능 → 백업 경로)
-    """
+def get_vti_latest_and_ref_from_twelvedata(year: int, api_key: str):
+    # 최신가
     q = _td_get_json("quote", {"symbol": "VTI", "apikey": api_key})
     latest_str = (q.get("close") or q.get("previous_close") or q.get("price"))
     if latest_str is None:
@@ -364,29 +312,131 @@ def get_vti_latest_and_ref_from_twelvedata(base_year: int, api_key: str):
             return None
         return float(vals[-1].get("close"))
 
-    ref = _fetch_ref(f"{base_year}-12-20", f"{base_year+1}-01-10")
+    ref = _fetch_ref(f"{year}-12-20", f"{year+1}-01-10")
     if ref is None:
-        ref = _fetch_ref(f"{base_year}-12-01", f"{base_year+1}-02-15")
+        ref = _fetch_ref(f"{year}-12-01", f"{year+1}-02-15")
     if ref is None:
-        ref = _fetch_ref(f"{base_year}-11-15", f"{base_year+1}-03-15")
-    if ref is None:
-        raise RuntimeError("VTI reference price not found")
+        ref = _fetch_ref(f"{year}-11-15", f"{year+1}-03-15")
 
-    print(f"[BUFFETT] VTI latest={latest}, base({base_year} year-end)={ref}")
-    return latest, ref, f"{base_year}-EOY"
+    if ref is None:
+        raise RuntimeError("VTI reference price not found in all windows")
+
+    print(f"[BUFFETT] VTI latest={latest}, base({year} year-end)={ref}")
+    return latest, ref, "VTI(TwelveData)"
+
+def get_spy_latest_and_ref_from_stooq(base_year: int):
+    """
+    Stooq CSV로 SPY 일별 시세 (무인증).
+    https://stooq.com/q/d/l/?s=spy.us&i=d
+    """
+    url = "https://stooq.com/q/d/l/"
+    params = {"s": "spy.us", "i": "d"}
+    r = requests.get(url, params=params, headers=HTTP_HEADERS, timeout=20)
+    r.raise_for_status()
+    rows = list(csv.DictReader(io.StringIO(r.text)))
+    if not rows or "Date" not in rows[0] or "Close" not in rows[0]:
+        raise RuntimeError("Unexpected Stooq CSV schema")
+
+    latest_close = None
+    base_close = None
+    base_start = datetime.date(base_year, 12, 1)
+    base_end   = datetime.date(base_year + 1, 1, 15)
+
+    for row in rows:
+        ds = row.get("Date")
+        cs = row.get("Close")
+        if not ds or not cs or cs in ("", "null", "NaN"):
+            continue
+        d = datetime.date.fromisoformat(ds)
+        c = float(cs)
+        latest_close = c  # 마지막 유효값이 최신
+        if base_start <= d <= base_end:
+            base_close = c  # 범위 내 마지막 거래일 종가로 계속 갱신
+
+    if base_close is None:
+        # 폴백: 기준연도 12/31 이전 마지막 거래일 종가
+        for row in reversed(rows):
+            ds = row.get("Date")
+            cs = row.get("Close")
+            if not ds or not cs or cs in ("", "null", "NaN"):
+                continue
+            d = datetime.date.fromisoformat(ds)
+            if d <= datetime.date(base_year, 12, 31):
+                base_close = float(cs)
+                break
+
+    if latest_close is None or base_close is None:
+        raise RuntimeError("Stooq SPY parse failed")
+
+    print(f"[BUFFETT] SPY(Stooq) latest={latest_close}, base={base_close}")
+    return latest_close, base_close, "SPY(Stooq)"
+
+def get_spy_latest_and_ref_from_yahoo(base_year: int):
+    """
+    Yahoo Finance CSV로 SPY 일별 시세(무인증).
+    - 최신값: 마지막 유효 행의 종가
+    - 기준값: [base_year-12-01, base_year+1-01-15] 범위의 마지막 거래일 종가
+    """
+    period1 = int(datetime.datetime(base_year, 12, 1, 0, 0).timestamp())
+    period2 = int(time.time())
+    url = "https://query1.finance.yahoo.com/v7/finance/download/SPY"
+    params = {
+        "period1": period1,
+        "period2": period2,
+        "interval": "1d",
+        "events": "history",
+        "includeAdjustedClose": "true",
+    }
+    r = requests.get(url, params=params, headers=HTTP_HEADERS, timeout=20)
+    r.raise_for_status()
+    rows = list(csv.DictReader(io.StringIO(r.text)))
+    if not rows or "Date" not in rows[0] or "Close" not in rows[0]:
+        raise RuntimeError("Unexpected Yahoo CSV schema")
+
+    latest_close = None
+    base_close = None
+    base_start = datetime.date(base_year, 12, 1)
+    base_end   = datetime.date(base_year + 1, 1, 15)
+
+    for row in rows:
+        ds = row.get("Date")
+        cs = row.get("Close")
+        if not ds or not cs or cs in ("", "null", "NaN"):
+            continue
+        d = datetime.date.fromisoformat(ds)
+        c = float(cs)
+        latest_close = c
+        if base_start <= d <= base_end:
+            base_close = c
+
+    if base_close is None:
+        for row in reversed(rows):
+            ds = row.get("Date")
+            cs = row.get("Close")
+            if not ds or not cs or cs in ("", "null", "NaN"):
+                continue
+            d = datetime.date.fromisoformat(ds)
+            if d <= datetime.date(base_year, 12, 31):
+                base_close = float(cs)
+                break
+
+    if latest_close is None or base_close is None:
+        raise RuntimeError("Yahoo SPY parse failed")
+
+    print(f"[BUFFETT] SPY(Yahoo) latest={latest_close}, base={base_close}")
+    return latest_close, base_close, "SPY(Yahoo)"
 
 # ── 버핏지수 (현재 추정 + 연간 확정) ────────────────────────────
 def get_buffett_indicator():
     """
     📐 버핏지수(현재 추정 + 연간 확정)
-    - 확정치: FRED(World Bank) DDDM01USA156NWDB (%)
+    - 확정치: FRED(World Bank 변환) DDDM01USA156NWDB (%)
     - 현재 추정(nowcast):
-        nowcast ≈ base_pct × (시장지표 최신/기준) / (GDP 최신/기준)
-      * 시장지표: 1순위 SPY(Stooq), 실패 시 VTI(TwelveData)
+        nowcast ≈ base_pct × (Market_latest / Market_base) / (GDP_latest / GDP_base)
     """
     api_key = FRED_API_KEY
 
-    # 1) 연간 확정치
+    # 1) 연간 확정치 (마지막 공개 연도)
     base = fred_latest_one("DDDM01USA156NWDB", api_key)
     if not base:
         print("[WARN] Buffett (DDDM01USA156NWDB) fetch failed")
@@ -395,44 +445,35 @@ def get_buffett_indicator():
     base_year = int(base_date[:4]) if base_date else None
     base_line = f"    · 연간 확정치: {base_pct:.0f}% (기준연도 {base_year})"
 
-    # 2) nowcast 계산
+    # 2) nowcast 계산 시도
     try:
         # GDP 최신/기준
         gdp_latest = fred_latest_one("GDP", api_key)
-        gdp_base   = _fred_csv_latest_single("GDP")  # 최신 파일에서 연도별 추출도 가능하지만 간단 경로
-        # 연도 기준값은 연도 말 값으로 추출
-        gdp_base = None
-        # 연도별 기준값 추출
-        url = "https://fred.stlouisfed.org/series/GDP/downloaddata/GDP.csv"
-        r = requests.get(url, headers=HTTP_HEADERS, timeout=20)
-        r.raise_for_status()
-        rows = list(csv.DictReader(io.StringIO(r.text)))
-        for row in reversed(rows):
-            d = row.get("DATE") or ""
-            v = (row.get("VALUE") or "").strip()
-            if d.startswith(f"{base_year}-") and v and v != ".":
-                gdp_base = (d, float(v))
-                break
+        gdp_base   = fred_value_for_year("GDP", base_year)
         if not gdp_latest or not gdp_base:
             raise RuntimeError("GDP 데이터 부족")
         _, gdp_latest_val = gdp_latest
         _, gdp_base_val   = gdp_base
 
-        # 시장지표 최신/기준: SPY(Stooq) 우선, 실패 시 VTI(TwelveData)
+        # 시장지표 최신/기준: SPY(Stooq) → SPY(Yahoo) → VTI(TwelveData)
         try:
-            mkt_latest, mkt_base, mkt_base_date = get_spy_latest_and_ref_from_stooq(base_year)
-            mkt_name = "SPY(Stooq)"
-        except Exception as ee:
-            print("[WARN] SPY(Stooq) path failed:", repr(ee))
-            mkt_latest, mkt_base, mkt_base_date = get_vti_latest_and_ref_from_twelvedata(base_year, os.environ["TWELVEDATA_API"])
-            mkt_name = "VTI(TwelveData)"
+            mkt_latest, mkt_base, mkt_name = get_spy_latest_and_ref_from_stooq(base_year)
+        except Exception as ee1:
+            print("[WARN] SPY(Stooq) path failed:", repr(ee1))
+            try:
+                mkt_latest, mkt_base, mkt_name = get_spy_latest_and_ref_from_yahoo(base_year)
+            except Exception as ee2:
+                print("[WARN] SPY(Yahoo) path failed:", repr(ee2))
+                mkt_latest, mkt_base, mkt_name = get_vti_latest_and_ref_from_twelvedata(
+                    base_year, TWELVEDATA_API
+                )
 
         mkt_factor = mkt_latest / mkt_base
         gdp_factor = gdp_latest_val / gdp_base_val
         nowcast_pct = base_pct * (mkt_factor / gdp_factor)
 
         print(f"[BUFFETT] GDP latest/base = {gdp_latest_val}/{gdp_base_val} → {gdp_factor:.2f}")
-        print(f"[BUFFETT] {mkt_name} latest/base = {mkt_latest}/{mkt_base} → {mkt_factor:.2f}")
+        print(f"[BUFFETT] Market({mkt_name}) latest/base = {mkt_latest}/{mkt_base} → {mkt_factor:.2f}")
         print(f"[BUFFETT] Nowcast = {base_pct:.1f}% × {mkt_factor:.2f}/{gdp_factor:.2f} = {nowcast_pct:.1f}%")
 
         head = f"📐 버핏지수(현재 추정): {nowcast_pct:.0f}% — {_classify_buffett(nowcast_pct)}"
