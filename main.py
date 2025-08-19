@@ -157,46 +157,61 @@ def get_fear_greed_index():
         return "📌 공포·탐욕 지수: 가져오기 실패"
 
 # ── 버핏지수 (신규) ───────────────────────────────────────
-def fred_latest_value(series_id: str):
+def fred_latest_value(series_id: str, tries: int = 3, sleep_base: float = 1.0):
     """
-    FRED CSV에서 해당 시리즈의 가장 최신 유효 숫자값(날짜, 값)을 반환.
-    값이 '.' 인 행은 건너뜀.
+    FRED CSV에서 해당 시리즈의 '가장 최신 유효값'을 반환합니다.
+    - 최신 행이 '.'(결측)인 경우가 많아서 전체를 읽고 역순으로 첫 숫자 찾음
+    - 네트워크/일시 오류 대비 재시도
+    반환: (date_str, float_value)
     """
     url = f"https://fred.stlouisfed.org/graph/fredgraph.csv?id={series_id}"
     headers = {"User-Agent": "Mozilla/5.0", "Accept": "text/csv"}
-    r = requests.get(url, headers=headers, timeout=15)
-    r.raise_for_status()
+    last_exc = None
 
-    last_date, last_val = None, None
-    for row in csv.DictReader(io.StringIO(r.text)):
-        v = (row.get(series_id) or "").strip()
-        if v and v != ".":
-            last_date, last_val = row.get("DATE"), float(v)
-    if last_date is None:
-        raise ValueError(f"No numeric rows for {series_id}")
-    return last_date, last_val
+    for attempt in range(1, tries + 1):
+        try:
+            r = requests.get(url, headers=headers, timeout=15)
+            r.raise_for_status()
+            rows = list(csv.DictReader(io.StringIO(r.text)))
+            # 뒤에서부터 올라가며 '.' 아닌 숫자값을 찾는다
+            for row in reversed(rows):
+                raw = (row.get(series_id) or "").strip()
+                if raw and raw != ".":
+                    return row.get("DATE"), float(raw)
+            # 전부 '.' 이거나 빈 값이면 예외
+            raise ValueError(f"No numeric observations for {series_id}")
+        except Exception as e:
+            last_exc = e
+            # 점진적 대기 후 재시도
+            time.sleep(sleep_base * attempt)
+
+    # 마지막 예외를 올림
+    raise last_exc
 
 
 def get_buffett_indicator():
     """
     버핏지수(근사) ≈ (Wilshire 5000 / 미국 명목 GDP) * 100
-    - Wilshire 5000 Full Cap Index: 우선 'WILL5000INDFC' 시도, 안되면 'WILL5000IND' 보조 시도
+    - Wilshire 5000 Full Cap Index: 'WILL5000INDFC' 우선, 실패 시 'WILL5000IND', 'WILL5000PR' 순으로 대체
     - GDP: 'GDP' (십억달러, 분기 SAAR)
+    주의: 지수와 GDP 단위 차이 때문에 '절대 정확'하진 않지만 방향성/수준은 잘 반영됩니다.
     """
     try:
-        # Wilshire 5000 최신값 (fallback 포함)
-        wilshire_ids = ["WILL5000INDFC", "WILL5000IND"]
+        wilshire_candidates = ["WILL5000INDFC", "WILL5000IND", "WILL5000PR"]
         wil_date = wil_val = None
-        for sid in wilshire_ids:
+
+        # Wilshire 시리즈 순차 시도
+        for sid in wilshire_candidates:
             try:
                 wil_date, wil_val = fred_latest_value(sid)
                 break
             except Exception:
                 continue
+
         if wil_val is None:
             return "📐 버핏지수: 데이터 없음"
 
-        # GDP 최신값
+        # GDP
         gdp_date, gdp_val = fred_latest_value("GDP")
 
         ratio = (wil_val / gdp_val) * 100.0
@@ -212,15 +227,16 @@ def get_buffett_indicator():
         else:
             label = "고평가 경고"
 
-        # 참고 날짜(둘 다 표기)
         return (
             f"📐 버핏지수(근사): {ratio:.0f}% — {label}\n"
             f"    · Wilshire: {wil_val:,.0f} (기준 {wil_date})\n"
             f"    · GDP: {gdp_val:,.0f} (기준 {gdp_date})"
         )
     except Exception as e:
-        print("[WARN] Buffett indicator error:", e)
+        # 깔끔하게 텔레그램에는 '데이터 없음'만 보내되, 로그로 원인 남김
+        print("[WARN] Buffett indicator error:", repr(e))
         return "📐 버핏지수: 데이터 없음"
+
 
 
 
