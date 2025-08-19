@@ -7,7 +7,7 @@ import schedule
 import time
 from bs4 import BeautifulSoup
 from playwright.sync_api import sync_playwright, TimeoutError as PlaywrightTimeoutError
-import csv, io, json
+import csv, io, json, re
 
 # ───────────────────────── 공통 HTTP 설정 / 디버그 ─────────────────────────
 HTTP_HEADERS = {
@@ -15,7 +15,8 @@ HTTP_HEADERS = {
                   "(KHTML, like Gecko) Chrome/124.0 Safari/537.36",
     "Accept": "application/json, text/csv;q=0.9,*/*;q=0.8",
 }
-HTTP_DEBUG = True  # ← 요청 URL 로깅
+HTTP_DEBUG = True  # 동작 확인 후 False로 내려도 됨
+
 # 잘못된 시스템 프록시 무시
 for k in ("HTTP_PROXY", "HTTPS_PROXY", "http_proxy", "https_proxy"):
     os.environ.pop(k, None)
@@ -26,17 +27,32 @@ S.trust_env = False
 S.headers.update(HTTP_HEADERS)
 _DEF_PROXIES = {"http": None, "https": None}
 
+def _mask_url(u: str) -> str:
+    """로그에 노출될 URL에서 토큰/키를 ***로 마스킹."""
+    try:
+        u = re.sub(r'(api\.telegram\.org\/bot)[^\/]+', r'\1***', u)
+        u = re.sub(r'(?i)(apikey|api_key|token|access_token)=[^&]+', r'\1=***', u)
+    except Exception:
+        pass
+    return u
+
 def http_get(url, *, params=None, timeout=20):
     if HTTP_DEBUG:
-        # 안전하게 실제 최종 URL 미리 로그
         try:
             from requests.models import PreparedRequest
             pr = PreparedRequest()
             pr.prepare_url(url, params)
-            print(f"[HTTP GET] {pr.url}")
+            print(f"[HTTP GET] {_mask_url(pr.url)}")
         except Exception:
-            print(f"[HTTP GET] {url} {params if params else ''}")
+            print(f"[HTTP GET] {_mask_url(url)} {params if params else ''}")
     r = S.get(url, params=params, timeout=timeout, proxies=_DEF_PROXIES, allow_redirects=True)
+    r.raise_for_status()
+    return r
+
+def http_post(url, *, data=None, timeout=20):
+    if HTTP_DEBUG:
+        print(f"[HTTP POST] {_mask_url(url)} (fields: {list((data or {}).keys())})")
+    r = S.post(url, data=data, timeout=timeout, proxies=_DEF_PROXIES, allow_redirects=True)
     r.raise_for_status()
     return r
 
@@ -50,8 +66,7 @@ EXCHANGE_KEY    = os.environ['EXCHANGEAPI']
 TWELVEDATA_API  = os.environ["TWELVEDATA_API"]
 TELEGRAM_URL    = f"https://api.telegram.org/bot{TOKEN}/sendMessage"
 today           = datetime.datetime.now().strftime('%Y년 %m월 %d일')
-FRED_API_KEY    = os.getenv("FRED_API_KEY")  # 없어도 동작
-USE_FRED_API    = False  # ← JSON API 경로 완전 비활성화 (CSV만 사용)
+FRED_API_KEY    = os.getenv("FRED_API_KEY")  # 없어도 동작(CSV 폴백)
 
 # ── 지표/시세 수집 ────────────────────────────────────────
 def get_us_indices():
@@ -231,7 +246,6 @@ def _fred_csv_latest_single(series_id: str, tries: int = 2):
     return None
 
 def fred_latest_one(series_id: str, api_key: str | None):
-    # JSON API 완전 비활성화
     combo = _fred_csv_latest_combined([series_id])
     if combo and combo.get(series_id) and combo[series_id][1] is not None:
         return combo[series_id]
@@ -347,11 +361,12 @@ def build_message():
 def send_to_telegram():
     part1 = build_message()
     part2 = fetch_media_press_ranking_playwright("215", 10)
+
     for msg in (part1, part2):
         if len(msg) > 4000:
             msg = msg[:3990] + "\n(※ 일부 생략됨)"
-        # 텔레그램은 GET/POST 둘 다 가능. 여기서는 http_get으로 통일(프록시 무시)
-        res = http_get(TELEGRAM_URL, params={"chat_id": CHAT_ID, "text": msg})
+        # ✅ POST 사용 (URL 길이/로그 노출 최소화)
+        res = http_post(TELEGRAM_URL, data={"chat_id": CHAT_ID, "text": msg})
         print("✅ 응답 코드:", res.status_code, "| 📨", res.text)
 
 # ── 스케줄러 ──────────────────────────────────────────────
