@@ -11,6 +11,12 @@ from googletrans import Translator
 import openai  # (미사용이면 제거 가능)
 import csv, io, json  # FRED/시세 CSV/JSON 파싱용
 
+# --- CI/서버 환경에 잘못 설정된 프록시 무시 (host='https' 오류 방지) ---
+for k in ("HTTP_PROXY", "HTTPS_PROXY", "http_proxy", "https_proxy"):
+    os.environ.pop(k, None)
+os.environ.setdefault("NO_PROXY", "*")
+
+
 HTTP_HEADERS = {
     "User-Agent": "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 "
                   "(KHTML, like Gecko) Chrome/124.0 Safari/537.36",
