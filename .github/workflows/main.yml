@@ -16,6 +16,7 @@ jobs:
       CHAT_ID:           ${{ secrets.CHAT_ID }}
       EXCHANGEAPI:       ${{ secrets.EXCHANGEAPI }}
       TWELVEDATA_API:    ${{ secrets.TWELVEDATA_API }}
+      FRED_API_KEY:    ${{ secrets.FRED_API_KEY }} 
 
     steps:
       - name: Checkout
