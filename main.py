@@ -265,36 +265,113 @@ def fred_latest_one(series_id: str, api_key: str | None):
     return _fred_csv_latest_single(series_id)
 
 # ── 버핏지수 (시총/GDP 직접 시리즈 사용) ────────────────────────
-def _classify_buffett(ratio: float) -> str:
-    if ratio < 75:
+def _classify_buffett(pct: float) -> str:
+    if pct < 75:
         return "저평가 구간"
-    elif ratio < 90:
+    elif pct < 90:
         return "약간 저평가"
-    elif ratio < 115:
+    elif pct < 115:
         return "적정 범위"
-    elif ratio < 135:
+    elif pct < 135:
         return "약간 고평가"
     else:
         return "고평가 경고"
 
+def fred_value_for_year(series_id: str, year: int):
+    """FRED downloaddata CSV에서 해당 연도의 '마지막 관측치'를 반환."""
+    url = f"https://fred.stlouisfed.org/series/{series_id}/downloaddata/{series_id}.csv"
+    r = requests.get(url, headers=HTTP_HEADERS, timeout=20)
+    r.raise_for_status()
+    rows = list(csv.DictReader(io.StringIO(r.text)))
+    for row in reversed(rows):
+        d = (row.get("DATE") or "")
+        v = (row.get("VALUE") or "").strip()
+        if d.startswith(f"{year}-") and v and v != ".":
+            return d, float(v)
+    return None  # 없으면 None
+
+def get_vti_latest_and_ref(year: int, api_key: str):
+    """
+    VTI 현재가와 기준연도 말(연말) 기준가를 가져옴.
+    기준가는 year-12-20 ~ (year+1)-01-10 구간의 마지막 종가.
+    구간 데이터가 비면 여유 구간으로 폴백.
+    """
+    # 최신가
+    j = requests.get(
+        f"https://api.twelvedata.com/quote?symbol=VTI&apikey={api_key}",
+        timeout=20
+    ).json()
+    latest = float(j["close"])
+
+    def _fetch_ref(start_date: str, end_date: str):
+        ts = requests.get(
+            "https://api.twelvedata.com/time_series",
+            params={
+                "symbol": "VTI",
+                "interval": "1day",
+                "start_date": start_date,
+                "end_date": end_date,
+                "order": "asc",
+                "apikey": api_key,
+            },
+            timeout=20
+        ).json()
+        vals = ts.get("values", [])
+        return float(vals[-1]["close"]) if vals else None
+
+    ref = _fetch_ref(f"{year}-12-20", f"{year+1}-01-10")
+    if ref is None:
+        # 폴백: 12/01 ~ 02/15
+        ref = _fetch_ref(f"{year}-12-01", f"{year+1}-02-15")
+    if ref is None:
+        raise RuntimeError("VTI 기준가 조회 실패")
+    return latest, ref
+
 def get_buffett_indicator():
     """
-    버핏지수(근사) = 시총/GDP.
-    FRED(World Bank 변환) 시리즈 'DDDM01USA156NWDB'는 이미 퍼센트(%)로 제공되는 연간 데이터.
+    📐 버핏지수(현재 추정 + 연간 확정)
+    - 확정치: FRED(World Bank 변환) DDDM01USA156NWDB (%)
+    - 현재 추정: 확정치(기준연도)를 VTI(시장)와 명목 GDP의 최신 변화율로 보정
+      nowcast ≈ base_pct × (VTI_latest / VTI_base) / (GDP_latest / GDP_base)
     """
-    api_key = FRED_API_KEY  # 없어도 CSV 폴백으로 동작
-    val = fred_latest_one("DDDM01USA156NWDB", api_key)
-    if not val:
+    api_key = FRED_API_KEY
+
+    # 1) 연간 확정치(마지막 공개 연도)
+    base = fred_latest_one("DDDM01USA156NWDB", api_key)
+    if not base:
         print("[WARN] Buffett (DDDM01USA156NWDB) fetch failed")
         return "📐 버핏지수: 데이터 없음"
+    base_date, base_pct = base                  # base_pct 자체가 % 값
+    base_year = int(base_date[:4]) if base_date else None
+    base_line = f"    · 연간 확정치: {base_pct:.0f}% (기준연도 {base_year})"
 
-    date, pct = val  # pct는 이미 퍼센트 값
-    label = _classify_buffett(pct)
-    year = date[:4] if date else "N/A"
-    return (
-        f"📐 버핏지수(시총/GDP, 연간): {pct:.0f}% — {label}\n"
-        f"    · 기준연도: {year} (FRED: DDDM01USA156NWDB)"
-    )
+    # 2) 현재 추정치(nowcast)
+    try:
+        # GDP 최신과 기준연도 GDP
+        gdp_latest = fred_latest_one("GDP", api_key)
+        gdp_base   = fred_value_for_year("GDP", base_year)
+        if not gdp_latest or not gdp_base:
+            raise RuntimeError("GDP 데이터 부족")
+        _, gdp_latest_val = gdp_latest
+        _, gdp_base_val   = gdp_base
+
+        # VTI 최신과 기준연도 말 기준가
+        vti_latest, vti_base = get_vti_latest_and_ref(base_year, os.environ["TWELVEDATA_API"])
+
+        mkt_factor = vti_latest / vti_base
+        gdp_factor = gdp_latest_val / gdp_base_val
+        nowcast_pct = base_pct * (mkt_factor / gdp_factor)
+
+        head = f"📐 버핏지수(현재 추정): {nowcast_pct:.0f}% — {_classify_buffett(nowcast_pct)}"
+        tail = (
+            f"{base_line}\n"
+            f"    · 보정계수: VTI×{mkt_factor:.2f} / GDP×{gdp_factor:.2f}"
+        )
+        return f"{head}\n{tail}"
+    except Exception as e:
+        print("[WARN] Buffett nowcast failed:", repr(e))
+        # 추정 실패 시 확정치만 노출
+        return f"📐 버핏지수(연간 확정치): {base_pct:.0f}% — {_classify_buffett(base_pct)}\n{base_line}"
 
 # ── 메시지 구성/전송 ──────────────────────────────────────
 def build_message():
