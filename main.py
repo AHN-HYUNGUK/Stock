@@ -138,6 +138,7 @@ def fetch_media_press_ranking_playwright(press_id="215", count=10):
         page.goto(url)
         page.wait_for_load_state("networkidle")
         page.wait_for_timeout(2000)
+        page.wait_for_selector(f"a[href*='/article/{press_id}/']", timeout=15000)  # 👈 추가
         anchors = page.query_selector_all(f"a[href*='/article/{press_id}/']")[:count]
         for a in anchors:
             img = a.query_selector("img")
