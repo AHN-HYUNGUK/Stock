@@ -37,7 +37,7 @@ translator = Translator()
 def get_us_indices():
     url = "https://www.investing.com/indices/major-indices"
     headers = {"User-Agent": "Mozilla/5.0"}
-    res = requests.get(url, headers=headers)
+    res = requests.get(url, headers=HTTP_HEADERS)
     soup = BeautifulSoup(res.text, "html.parser")
     rows = soup.select("table tbody tr")[:3]
     out = []
@@ -119,7 +119,7 @@ def get_korean_stock_price(stock_code, name):
 def fetch_us_market_news_titles():
     try:
         url = "https://finance.yahoo.com/"
-        soup = BeautifulSoup(requests.get(url, headers={"User-Agent": "Mozilla/5.0"}).text, "html.parser")
+        soup = BeautifulSoup(requests.get(url, headers=HTTP_HEADERS, "html.parser")
         arts = soup.select("li.js-stream-content a.js-content-viewer")[:3]
         return "\n".join(
             f"• {a.get_text(strip=True)}\n👉 {a['href'] if a['href'].startswith('http') else 'https://finance.yahoo.com' + a['href']}"
