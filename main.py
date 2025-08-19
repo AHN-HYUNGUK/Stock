@@ -119,14 +119,17 @@ def get_korean_stock_price(stock_code, name):
 def fetch_us_market_news_titles():
     try:
         url = "https://finance.yahoo.com/"
-        soup = BeautifulSoup(requests.get(url, headers=HTTP_HEADERS, "html.parser")
+        html = requests.get(url, headers=HTTP_HEADERS, timeout=20).text
+        soup = BeautifulSoup(html, "html.parser")
         arts = soup.select("li.js-stream-content a.js-content-viewer")[:3]
         return "\n".join(
             f"• {a.get_text(strip=True)}\n👉 {a['href'] if a['href'].startswith('http') else 'https://finance.yahoo.com' + a['href']}"
             for a in arts
         ) or "(기사 없음)"
-    except:
+    except Exception as e:
+        print("[WARN] yahoo fetch failed:", repr(e))
         return "(뉴스 수집 실패)"
+
 
 def fetch_media_press_ranking_playwright(press_id="215", count=10):
     url = f"https://media.naver.com/press/{press_id}/ranking"
