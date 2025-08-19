@@ -290,64 +290,92 @@ def fred_value_for_year(series_id: str, year: int):
             return d, float(v)
     return None  # 없으면 None
 
+def _td_get_json(endpoint: str, params: dict, tries: int = 3, sleep_sec: float = 0.8):
+    """TwelveData 호출 헬퍼: status:error면 재시도."""
+    url = f"https://api.twelvedata.com/{endpoint}"
+    last = None
+    for i in range(tries):
+        try:
+            r = requests.get(url, params=params, headers=HTTP_HEADERS, timeout=20)
+            r.raise_for_status()
+            j = r.json()
+            if isinstance(j, dict) and j.get("status") == "error":
+                last = j.get("message")
+                time.sleep(sleep_sec)
+                continue
+            return j
+        except Exception as e:
+            last = repr(e)
+            time.sleep(sleep_sec)
+    raise RuntimeError(f"TwelveData {endpoint} failed: {last}")
+
+
 def get_vti_latest_and_ref(year: int, api_key: str):
     """
-    VTI 현재가와 기준연도 말(연말) 기준가를 가져옴.
-    기준가는 year-12-20 ~ (year+1)-01-10 구간의 마지막 종가.
-    구간 데이터가 비면 여유 구간으로 폴백.
+    VTI 현재가와 기준연도 말(연말) 기준가.
+    기준가는 year-12-20 ~ (year+1)-01-10 범위의 '마지막 종가'.
+    데이터가 비면 넓은 구간으로 폴백.
     """
     # 최신가
-    j = requests.get(
-        f"https://api.twelvedata.com/quote?symbol=VTI&apikey={api_key}",
-        timeout=20
-    ).json()
-    latest = float(j["close"])
+    q = _td_get_json("quote", {"symbol": "VTI", "apikey": api_key})
+    latest_str = (q.get("close")
+                  or q.get("previous_close")
+                  or q.get("price"))
+    if latest_str is None:
+        raise RuntimeError(f"VTI quote has no price fields: {q}")
+    latest = float(latest_str)
 
     def _fetch_ref(start_date: str, end_date: str):
-        ts = requests.get(
-            "https://api.twelvedata.com/time_series",
-            params={
-                "symbol": "VTI",
-                "interval": "1day",
-                "start_date": start_date,
-                "end_date": end_date,
-                "order": "asc",
-                "apikey": api_key,
-            },
-            timeout=20
-        ).json()
-        vals = ts.get("values", [])
-        return float(vals[-1]["close"]) if vals else None
+        ts = _td_get_json("time_series", {
+            "symbol": "VTI",
+            "interval": "1day",
+            "start_date": start_date,
+            "end_date": end_date,
+            "order": "asc",
+            "apikey": api_key,
+        })
+        vals = ts.get("values") or []
+        if not vals:
+            return None
+        # 마지막 관측치의 종가
+        return float(vals[-1].get("close"))
 
+    # 기본 구간
     ref = _fetch_ref(f"{year}-12-20", f"{year+1}-01-10")
+    # 1차 폴백: 좀 더 넓게
     if ref is None:
-        # 폴백: 12/01 ~ 02/15
         ref = _fetch_ref(f"{year}-12-01", f"{year+1}-02-15")
+    # 2차 폴백: 연말 단일일(12/31) 포함 넓은 폭
     if ref is None:
-        raise RuntimeError("VTI 기준가 조회 실패")
+        ref = _fetch_ref(f"{year}-11-15", f"{year+1}-03-15")
+
+    if ref is None:
+        raise RuntimeError("VTI reference price not found in all windows")
+
+    print(f"[BUFFETT] VTI latest={latest}, base({year} year-end)={ref}")
     return latest, ref
+
 
 def get_buffett_indicator():
     """
     📐 버핏지수(현재 추정 + 연간 확정)
-    - 확정치: FRED(World Bank 변환) DDDM01USA156NWDB (%)
-    - 현재 추정: 확정치(기준연도)를 VTI(시장)와 명목 GDP의 최신 변화율로 보정
-      nowcast ≈ base_pct × (VTI_latest / VTI_base) / (GDP_latest / GDP_base)
+    - 확정치: FRED(World Bank) DDDM01USA156NWDB (%)
+    - 현재 추정(nowcast):
+        nowcast ≈ base_pct × (VTI_latest / VTI_base) / (GDP_latest / GDP_base)
     """
     api_key = FRED_API_KEY
 
-    # 1) 연간 확정치(마지막 공개 연도)
+    # 1) 연간 확정치
     base = fred_latest_one("DDDM01USA156NWDB", api_key)
     if not base:
         print("[WARN] Buffett (DDDM01USA156NWDB) fetch failed")
         return "📐 버핏지수: 데이터 없음"
-    base_date, base_pct = base                  # base_pct 자체가 % 값
+    base_date, base_pct = base
     base_year = int(base_date[:4]) if base_date else None
     base_line = f"    · 연간 확정치: {base_pct:.0f}% (기준연도 {base_year})"
 
-    # 2) 현재 추정치(nowcast)
+    # 2) nowcast 계산
     try:
-        # GDP 최신과 기준연도 GDP
         gdp_latest = fred_latest_one("GDP", api_key)
         gdp_base   = fred_value_for_year("GDP", base_year)
         if not gdp_latest or not gdp_base:
@@ -355,12 +383,16 @@ def get_buffett_indicator():
         _, gdp_latest_val = gdp_latest
         _, gdp_base_val   = gdp_base
 
-        # VTI 최신과 기준연도 말 기준가
         vti_latest, vti_base = get_vti_latest_and_ref(base_year, os.environ["TWELVEDATA_API"])
 
         mkt_factor = vti_latest / vti_base
         gdp_factor = gdp_latest_val / gdp_base_val
         nowcast_pct = base_pct * (mkt_factor / gdp_factor)
+
+        print(f"[BUFFETT] GDP latest/base = {gdp_latest_val}/{gdp_base_val} "
+              f"→ factor {gdp_factor:.2f}")
+        print(f"[BUFFETT] Nowcast = {base_pct:.1f}% × {mkt_factor:.2f}/{gdp_factor:.2f} "
+              f"= {nowcast_pct:.1f}%")
 
         head = f"📐 버핏지수(현재 추정): {nowcast_pct:.0f}% — {_classify_buffett(nowcast_pct)}"
         tail = (
@@ -368,10 +400,12 @@ def get_buffett_indicator():
             f"    · 보정계수: VTI×{mkt_factor:.2f} / GDP×{gdp_factor:.2f}"
         )
         return f"{head}\n{tail}"
+
     except Exception as e:
         print("[WARN] Buffett nowcast failed:", repr(e))
         # 추정 실패 시 확정치만 노출
         return f"📐 버핏지수(연간 확정치): {base_pct:.0f}% — {_classify_buffett(base_pct)}\n{base_line}"
+        
 
 # ── 메시지 구성/전송 ──────────────────────────────────────
 def build_message():
