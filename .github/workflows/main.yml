@@ -13,7 +13,7 @@ jobs:
     env:
       OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
       TOKEN:             ${{ secrets.TOKEN }}
-      CHAT_ID:           ${{ secrets.CHAT_IDS }}
+      CHAT_IDS:           ${{ secrets.CHAT_IDS }}
       EXCHANGEAPI:       ${{ secrets.EXCHANGEAPI }}
       TWELVEDATA_API:    ${{ secrets.TWELVEDATA_API }}
       FRED_API_KEY:    ${{ secrets.FRED_API_KEY }} 
