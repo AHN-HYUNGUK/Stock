@@ -75,6 +75,13 @@ TELEGRAM_URL    = f"https://api.telegram.org/bot{TOKEN}/sendMessage"
 today           = datetime.datetime.now().strftime('%Y년 %m월 %d일')
 
 
+# 🌟 수정된 코드: 각 항목의 앞뒤 공백을 제거하고, 빈 문자열인 경우 제외
+CHAT_IDS = [
+    _id.strip() 
+    for _id in os.environ['CHAT_IDS'].split(",") 
+    if _id.strip() # 공백 제거 후 내용이 있는 ID만 사용
+]
+
 
 # ── 지표/시세 수집 ────────────────────────────────────────
 def get_us_indices():
