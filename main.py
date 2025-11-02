@@ -361,16 +361,18 @@ def build_message():
     )
 
 
+
 def send_to_telegram():
     part1 = build_message()
     part2 = fetch_media_press_ranking_playwright("215", 10)
 
-    for chat_id in CHAT_IDS:  # ✅ 여러 명에게 전송
+    for chat_id in CHAT_IDS:  # ✅ 여러 명에게 순차 전송
         for msg in (part1, part2):
             if len(msg) > 4000:
                 msg = msg[:3990] + "\n(※ 일부 생략됨)"
             res = http_post(TELEGRAM_URL, data={"chat_id": chat_id.strip(), "text": msg})
             print(f"✅ {chat_id} 전송 완료 | 코드: {res.status_code}")
+
 
 
 # ── 스케줄러 ──────────────────────────────────────────────
