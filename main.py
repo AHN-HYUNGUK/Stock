@@ -59,14 +59,16 @@ def http_post(url, *, data=None, timeout=20):
 # (dotenv 안 쓰면 그대로)
 load_dotenv = None
 
+
 # ── 환경 변수 ─────────────────────────────────────────────
 TOKEN           = os.environ['TOKEN']
-CHAT_ID         = os.environ['CHAT_ID']
+CHAT_IDS        = os.environ['CHAT_IDS'].split("7638597712")  # ✅ 여러 명 쉼표로 구분
 EXCHANGE_KEY    = os.environ['EXCHANGEAPI']
 TWELVEDATA_API  = os.environ["TWELVEDATA_API"]
 TELEGRAM_URL    = f"https://api.telegram.org/bot{TOKEN}/sendMessage"
 today           = datetime.datetime.now().strftime('%Y년 %m월 %d일')
-FRED_API_KEY    = os.getenv("FRED_API_KEY")  # 없어도 동작(CSV 폴백)
+
+
 
 # ── 지표/시세 수집 ────────────────────────────────────────
 def get_us_indices():
@@ -358,16 +360,18 @@ def build_message():
         f"📰 세계 언론사 랭킹 뉴스 (press 074):\n{fetch_media_press_ranking_playwright('074', 3)}"
     )
 
+
 def send_to_telegram():
     part1 = build_message()
     part2 = fetch_media_press_ranking_playwright("215", 10)
 
-    for msg in (part1, part2):
-        if len(msg) > 4000:
-            msg = msg[:3990] + "\n(※ 일부 생략됨)"
-        # ✅ POST 사용 (URL 길이/로그 노출 최소화)
-        res = http_post(TELEGRAM_URL, data={"chat_id": CHAT_ID, "text": msg})
-        print("✅ 응답 코드:", res.status_code, "| 📨", res.text)
+    for chat_id in CHAT_IDS:  # ✅ 여러 명에게 전송
+        for msg in (part1, part2):
+            if len(msg) > 4000:
+                msg = msg[:3990] + "\n(※ 일부 생략됨)"
+            res = http_post(TELEGRAM_URL, data={"chat_id": chat_id.strip(), "text": msg})
+            print(f"✅ {chat_id} 전송 완료 | 코드: {res.status_code}")
+
 
 # ── 스케줄러 ──────────────────────────────────────────────
 schedule.every().day.at("07:00").do(send_to_telegram)
