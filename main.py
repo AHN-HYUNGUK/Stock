@@ -65,6 +65,7 @@ TOKEN           = os.environ['TOKEN']
 CHAT_IDS        = os.environ['CHAT_IDS'].split(",")  # ✅ 여러 명 쉼표로 구분
 EXCHANGE_KEY    = os.environ['EXCHANGEAPI']
 TWELVEDATA_API  = os.environ["TWELVEDATA_API"]
+FRED_API_KEY    = os.environ["FRED_API_KEY"]  # 🌟 이 줄을 추가합니다!
 TELEGRAM_URL    = f"https://api.telegram.org/bot{TOKEN}/sendMessage"
 today           = datetime.datetime.now().strftime('%Y년 %m월 %d일')
 
