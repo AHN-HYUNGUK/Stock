@@ -62,7 +62,7 @@ load_dotenv = None
 
 # ── 환경 변수 ─────────────────────────────────────────────
 TOKEN           = os.environ['TOKEN']
-CHAT_IDS        = os.environ['CHAT_IDS'].split("7638597712")  # ✅ 여러 명 쉼표로 구분
+CHAT_IDS        = os.environ['CHAT_IDS'].split("7638597712, 7484882811")  # ✅ 여러 명 쉼표로 구분
 EXCHANGE_KEY    = os.environ['EXCHANGEAPI']
 TWELVEDATA_API  = os.environ["TWELVEDATA_API"]
 TELEGRAM_URL    = f"https://api.telegram.org/bot{TOKEN}/sendMessage"
