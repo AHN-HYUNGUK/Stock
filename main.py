@@ -53,6 +53,11 @@ def http_post(url, *, data=None, timeout=20):
     if HTTP_DEBUG:
         print(f"[HTTP POST] {_mask_url(url)} (fields: {list((data or {}).keys())})")
     r = S.post(url, data=data, timeout=timeout, proxies=_DEF_PROXIES, allow_redirects=True)
+    
+    # 🌟 이 부분을 추가하여 400 에러 발생 시 응답 내용을 출력합니다.
+    if r.status_code == 400:
+        print(f"[ERROR 400 DETAILS] {r.text}")
+        
     r.raise_for_status()
     return r
 
