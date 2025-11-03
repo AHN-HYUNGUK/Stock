@@ -71,6 +71,7 @@ CHAT_IDS        = os.environ['CHAT_IDS'].split(",")  # ✅ 여러 명 쉼표로 
 EXCHANGE_KEY    = os.environ['EXCHANGEAPI']
 TWELVEDATA_API  = os.environ["TWELVEDATA_API"]
 FRED_API_KEY    = os.environ["FRED_API_KEY"]  # 🌟 이 줄을 추가합니다!
+FMP_API_KEY     = os.environ["FMP_API_KEY"]
 TELEGRAM_URL    = f"https://api.telegram.org/bot{TOKEN}/sendMessage"
 today           = datetime.datetime.now().strftime('%Y년 %m월 %d일')
 
@@ -105,30 +106,32 @@ def get_us_indices():
 
 
 def get_korean_indices():
-    """TwelveData API를 사용하여 코스피와 코스닥 지수를 가져옵니다."""
-    api_key = TWELVEDATA_API
-    # TwelveData 심볼: KOSPI (KS11), KOSDAQ (KQ11)
-    symbols = {"코스피": "KS11", "코스닥": "KQ11"}
+    """FMP API를 사용하여 코스피와 코스닥 지수를 가져옵니다."""
+    api_key = FMP_API_KEY
+    # FMP 심볼: 코스피 (^KS11), 코스닥 (^KQ11)
+    symbols = {"코스피": "^KS11", "코스닥": "^KQ11"}
     out = []
     
     for name, sym in symbols.items():
         try:
-            j = http_get("https://api.twelvedata.com/quote",
-                         params={"symbol": sym, "apikey": api_key}).json()
+            # FMP Quote API 엔드포인트 사용
+            url = "https://financialmodelingprep.com/api/v3/quote/" + sym
+            j = http_get(url, params={"apikey": api_key}).json()
             
-            # API 응답 유효성 검사
-            if j.get("status") == "error":
-                 raise RuntimeError(f"API 오류: {j.get('message')}")
+            # API 응답 유효성 검사 (리스트의 첫 번째 요소 사용)
+            if not j or j[0].get("symbol") != sym:
+                 raise RuntimeError("API에서 유효한 데이터를 반환하지 않음")
 
-            p = float(j["close"]); c = float(j["change"]); pct = float(j["percent_change"])
+            data = j[0]
+            p = data["price"]; c = data["change"]; pct = data["changesPercentage"]
             icon = "▲" if c > 0 else "▼" if c < 0 else "-"
             out.append(f"{name}: {p:,.2f} ({icon}{pct:+.2f}%)")
         except Exception as e:
             print(f"[ERROR] {name} API 수집 실패: {e}")
-            out.append(f"{name}: 데이터 수집 오류 (API)")
+            out.append(f"{name}: 데이터 수집 오류 (FMP API)")
             
-    if not out:
-        return "🇰🇷 한국 주요 지수: API 연결 오류"
+    if len(out) == 0 or "데이터 수집 오류" in "".join(out):
+        return "🇰🇷 한국 주요 지수: API 연결 또는 설정 오류"
         
     return "🇰🇷 한국 주요 지수:\n" + "\n".join(out)
 
