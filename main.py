@@ -155,27 +155,43 @@ def get_korean_indices():
         
     return "\n".join(out)
 
+# main.py 파일 내 get_crypto_prices 함수를 아래 코드로 교체합니다.
+
 def get_crypto_prices():
-    """TwelveData API를 사용하여 BTC/ETH 시세를 가져옵니다."""
-    symbols = {"₿ 비트코인": "BTC/USD", "Ξ 이더리움": "ETH/USD"}
+    """CoinGecko API를 사용하여 BTC/ETH 시세를 가져옵니다."""
+    # CoinGecko의 공개 API (API 키 불필요)
+    url = "https://api.coingecko.com/api/v3/simple/price"
+    
+    # ids: 코인 ID, vs_currencies: 비교 통화, include_24hr_change: 24시간 변동률 요청
+    params = {
+        "ids": "bitcoin,ethereum", 
+        "vs_currencies": "usd", 
+        "include_24hr_change": "true"
+    }
+    
     out = []
-    
-    # 코인의 경우, TwelveData의 종목 코드가 다르거나 지원하지 않을 수 있어 API 키 대신 직접 API 요청
-    # TwelveData를 사용하지 않고 공신력 있는 다른 API를 사용할 수도 있습니다.
-    # 여기서는 TwelveData를 그대로 사용하여 API 호출을 시도합니다.
-    
-    for name, sym in symbols.items():
-        try:
-            # TwelveData는 심볼에 슬래시(/)를 허용하지 않을 수 있습니다.
-            # BTCUSD와 ETHUSD 심볼을 사용합니다.
-            td_sym = sym.replace('/', '')
-            j = http_get("https://api.twelvedata.com/quote",
-                         params={"symbol": td_sym, "apikey": TWELVEDATA_API}).json()
-            p = float(j["close"]); c = float(j["change"]); pct = float(j["percent_change"])
-            icon = "▲" if c > 0 else "▼" if c < 0 else "-"
-            out.append(f"• {name}: ${p:,.0f} {icon}{abs(c):,.0f} ({pct:+.2f}%)")
-        except Exception:
-            out.append(f"• {name}: 정보 없음 (API 오류)")
+    try:
+        j = http_get(url, params=params).json()
+        
+        # 비트코인
+        btc_data = j.get("bitcoin", {})
+        if btc_data:
+            price = btc_data.get("usd", 0)
+            pct_change = btc_data.get("usd_24h_change", 0)
+            icon = "▲" if pct_change > 0 else "▼" if pct_change < 0 else "-"
+            out.append(f"• ₿ 비트코인: ${price:,.0f} ({icon}{pct_change:+.2f}%)")
+        
+        # 이더리움
+        eth_data = j.get("ethereum", {})
+        if eth_data:
+            price = eth_data.get("usd", 0)
+            pct_change = eth_data.get("usd_24h_change", 0)
+            icon = "▲" if pct_change > 0 else "▼" if pct_change < 0 else "-"
+            out.append(f"• Ξ 이더리움: ${price:,.0f} ({icon}{pct_change:+.2f}%)")
+            
+    except Exception as e:
+        print(f"[ERROR] 암호화폐 시세 수집 실패: {e}")
+        out.append("• 비트코인/이더리움: 정보 없음 (CoinGecko API 오류)")
             
     return "🌐 주요 암호화폐 시세:\n" + "\n".join(out)
 
