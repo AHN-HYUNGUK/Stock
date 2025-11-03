@@ -67,14 +67,14 @@ load_dotenv = None
 
 # ── 환경 변수 ─────────────────────────────────────────────
 TOKEN           = os.environ['TOKEN']
-CHAT_IDS        = os.environ['CHAT_IDS'].split(",")  # ✅ 여러 명 쉼표로 구분
+CHAT_IDS        = os.environ['CHAT_IDS'].split(",")
 EXCHANGE_KEY    = os.environ['EXCHANGEAPI']
 TWELVEDATA_API  = os.environ["TWELVEDATA_API"]
-FRED_API_KEY    = os.environ["FRED_API_KEY"]  # 🌟 이 줄을 추가합니다!
-FMP_API_KEY     = os.environ["FMP_API_KEY"]
+FRED_API_KEY    = os.environ["FRED_API_KEY"] 
+# 🌟 os.environ.get()을 사용하여 KeyError 방지
+FMP_API_KEY     = os.environ.get("FMP_API_KEY", "DUMMY_KEY_FOR_FMP") 
 TELEGRAM_URL    = f"https://api.telegram.org/bot{TOKEN}/sendMessage"
 today           = datetime.datetime.now().strftime('%Y년 %m월 %d일')
-
 
 # 🌟 수정된 코드: 각 항목의 앞뒤 공백을 제거하고, 빈 문자열인 경우 제외
 CHAT_IDS = [
