@@ -105,39 +105,67 @@ def get_us_indices():
 
 
 def get_korean_indices():
-    """네이버 금융에서 코스피/코스닥 지수를 크롤링"""
+    """네이버 금융에서 코스피/코스닥 지수를 크롤링 (2025년 기준 안정화)"""
     url = "https://finance.naver.com/"
     res = http_get(url)
     soup = BeautifulSoup(res.text, "html.parser")
-    
-    # 코스피 정보 추출
-    kospi_panel = soup.select_one(".section_stock .section_top")
-    kospi_name = kospi_panel.select_one("a").text.strip()
-    kospi_price = kospi_panel.select_one(".num").text.strip().replace(",", "")
-    kospi_change = kospi_panel.select_one(".change_percent .num").text.strip()
-    
-    # 코스닥 정보 추출
-    kosdaq_panel = soup.select_one(".section_kosdaq .section_top")
-    kosdaq_name = kosdaq_panel.select_one("a").text.strip()
-    kosdaq_price = kosdaq_panel.select_one(".num").text.strip().replace(",", "")
-    kosdaq_change = kosdaq_panel.select_one(".change_percent .num").text.strip()
+    out = []
 
-    # 결과 포맷팅
-    def format_index(name, price, change):
+    # 1. 코스피 정보 추출
+    # 🌟 셀렉터 변경: 확실하게 지수 정보를 담고 있는 'section'을 찾습니다.
+    kospi_area = soup.select_one("div.section_stock_market > div:nth-child(1)")
+    
+    if kospi_area:
         try:
-            price = float(price)
-            # change: '+1.02%' 형태이므로 부호와 숫자를 분리
-            pct = float(change.replace('%', ''))
-            icon = "▲" if pct > 0 else "▼" if pct < 0 else "-"
-            # 변동폭 계산 (정확한 변동폭 정보가 없으므로 %를 사용)
-            return f"{name}: {price:,.2f} ({icon}{pct:+.2f}%)"
-        except Exception:
-            return f"{name}: 데이터 오류"
+            # 이름은 .h_title_box에서 찾음
+            kospi_name = kospi_area.select_one(".h_title_box a").text.strip()
+            # 가격 패널은 .panel_this_index (또는 .this_index)
+            kospi_price = kospi_area.select_one(".num_quot")
+            kospi_num = kospi_price.select_one(".num").text.strip().replace(",", "")
+            
+            # 전일 대비 정보는 .rate_info 또는 .change_info
+            change_info = kospi_area.select_one(".change_info .num")
+            
+            # 등락률은 .change_info 내의 .rate
+            rate_info = kospi_area.select_one(".change_info .rate")
+            
+            kospi_change_pct = rate_info.text.strip().replace("%", "")
+            
+            # 결과 포맷팅
+            def format_index(name, price_str, change_pct_str):
+                price = float(price_str)
+                pct = float(change_pct_str)
+                icon = "▲" if pct > 0 else "▼" if pct < 0 else "-"
+                return f"{name}: {price:,.2f} ({icon}{pct:+.2f}%)"
 
-    return "\n".join([
-        format_index(kospi_name, kospi_price, kospi_change),
-        format_index(kosdaq_name, kosdaq_price, kosdaq_change)
-    ])
+            out.append(format_index(kospi_name, kospi_num, kospi_change_pct))
+
+        except Exception as e:
+            print(f"[ERROR] KOSPI 크롤링 실패: {e}")
+            out.append("코스피: 데이터 수집 오류")
+            
+    # 2. 코스닥 정보 추출
+    # 🌟 셀렉터 변경: 코스닥 영역을 확실히 찾습니다.
+    kosdaq_area = soup.select_one("div.section_stock_market > div:nth-child(2)")
+
+    if kosdaq_area:
+        try:
+            kosdaq_name = kosdaq_area.select_one(".h_title_box a").text.strip()
+            kosdaq_price = kosdaq_area.select_one(".num_quot")
+            kosdaq_num = kosdaq_price.select_one(".num").text.strip().replace(",", "")
+            rate_info = kosdaq_area.select_one(".change_info .rate")
+            kosdaq_change_pct = rate_info.text.strip().replace("%", "")
+            
+            out.append(format_index(kosdaq_name, kosdaq_num, kosdaq_change_pct))
+            
+        except Exception as e:
+            print(f"[ERROR] KOSDAQ 크롤링 실패: {e}")
+            out.append("코스닥: 데이터 수집 오류")
+
+    if not out:
+        return "코스피/코스닥: 지수 패널을 찾을 수 없음"
+        
+    return "\n".join(out)
 
 
 def get_crypto_prices():
