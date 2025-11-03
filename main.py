@@ -72,7 +72,7 @@ EXCHANGE_KEY    = os.environ['EXCHANGEAPI']
 TWELVEDATA_API  = os.environ["TWELVEDATA_API"]
 FRED_API_KEY    = os.environ["FRED_API_KEY"] 
 # 🌟 os.environ.get() 대신 원래 코드로 되돌려 정확한 키를 읽어오도록 합니다.
-FMP_API_KEY     = os.environ["FMP_API_KEY"] 
+FMP_API_KEY     = os.environ["FMP_KEY_NEW"]
 TELEGRAM_URL    = f"https://api.telegram.org/bot{TOKEN}/sendMessage"
 today           = datetime.datetime.now().strftime('%Y년 %m월 %d일')
 
