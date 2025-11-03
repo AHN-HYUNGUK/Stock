@@ -71,8 +71,8 @@ CHAT_IDS        = os.environ['CHAT_IDS'].split(",")
 EXCHANGE_KEY    = os.environ['EXCHANGEAPI']
 TWELVEDATA_API  = os.environ["TWELVEDATA_API"]
 FRED_API_KEY    = os.environ["FRED_API_KEY"] 
-# 🌟 os.environ.get()을 사용하여 KeyError 방지
-FMP_API_KEY     = os.environ.get("FMP_API_KEY", "DUMMY_KEY_FOR_FMP") 
+# 🌟 os.environ.get() 대신 원래 코드로 되돌려 정확한 키를 읽어오도록 합니다.
+FMP_API_KEY     = os.environ["FMP_API_KEY"] 
 TELEGRAM_URL    = f"https://api.telegram.org/bot{TOKEN}/sendMessage"
 today           = datetime.datetime.now().strftime('%Y년 %m월 %d일')
 
