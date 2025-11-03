@@ -103,6 +103,68 @@ def get_us_indices():
             out.append(f"{name}: 데이터 오류")
     return "\n".join(out)
 
+
+def get_korean_indices():
+    """네이버 금융에서 코스피/코스닥 지수를 크롤링"""
+    url = "https://finance.naver.com/"
+    res = http_get(url)
+    soup = BeautifulSoup(res.text, "html.parser")
+    
+    # 코스피 정보 추출
+    kospi_panel = soup.select_one(".section_stock .section_top")
+    kospi_name = kospi_panel.select_one("a").text.strip()
+    kospi_price = kospi_panel.select_one(".num").text.strip().replace(",", "")
+    kospi_change = kospi_panel.select_one(".change_percent .num").text.strip()
+    
+    # 코스닥 정보 추출
+    kosdaq_panel = soup.select_one(".section_kosdaq .section_top")
+    kosdaq_name = kosdaq_panel.select_one("a").text.strip()
+    kosdaq_price = kosdaq_panel.select_one(".num").text.strip().replace(",", "")
+    kosdaq_change = kosdaq_panel.select_one(".change_percent .num").text.strip()
+
+    # 결과 포맷팅
+    def format_index(name, price, change):
+        try:
+            price = float(price)
+            # change: '+1.02%' 형태이므로 부호와 숫자를 분리
+            pct = float(change.replace('%', ''))
+            icon = "▲" if pct > 0 else "▼" if pct < 0 else "-"
+            # 변동폭 계산 (정확한 변동폭 정보가 없으므로 %를 사용)
+            return f"{name}: {price:,.2f} ({icon}{pct:+.2f}%)"
+        except Exception:
+            return f"{name}: 데이터 오류"
+
+    return "\n".join([
+        format_index(kospi_name, kospi_price, kospi_change),
+        format_index(kosdaq_name, kosdaq_price, kosdaq_change)
+    ])
+
+
+def get_crypto_prices():
+    """TwelveData API를 사용하여 BTC/ETH 시세를 가져옵니다."""
+    symbols = {"₿ 비트코인": "BTC/USD", "Ξ 이더리움": "ETH/USD"}
+    out = []
+    
+    # 코인의 경우, TwelveData의 종목 코드가 다르거나 지원하지 않을 수 있어 API 키 대신 직접 API 요청
+    # TwelveData를 사용하지 않고 공신력 있는 다른 API를 사용할 수도 있습니다.
+    # 여기서는 TwelveData를 그대로 사용하여 API 호출을 시도합니다.
+    
+    for name, sym in symbols.items():
+        try:
+            # TwelveData는 심볼에 슬래시(/)를 허용하지 않을 수 있습니다.
+            # BTCUSD와 ETHUSD 심볼을 사용합니다.
+            td_sym = sym.replace('/', '')
+            j = http_get("https://api.twelvedata.com/quote",
+                         params={"symbol": td_sym, "apikey": TWELVEDATA_API}).json()
+            p = float(j["close"]); c = float(j["change"]); pct = float(j["percent_change"])
+            icon = "▲" if c > 0 else "▼" if c < 0 else "-"
+            out.append(f"• {name}: ${p:,.0f} {icon}{abs(c):,.0f} ({pct:+.2f}%)")
+        except Exception:
+            out.append(f"• {name}: 정보 없음 (API 오류)")
+            
+    return "🌐 주요 암호화폐 시세:\n" + "\n".join(out)
+
+
 def get_exchange_rates():
     j = http_get(f"https://v6.exchangerate-api.com/v6/{EXCHANGE_KEY}/latest/USD").json()
     rates = j.get("conversion_rates", {})
@@ -361,18 +423,20 @@ def get_buffett_indicator():
         return f"📐 버핏지수(연간 확정치): {base_pct:.0f}% — {_classify_buffett(base_pct)}\n{base_line}"
 
 # ── 메시지/전송 ──────────────────────────────────────────
+
 def build_message():
     return (
         f"📈 [{today}] 뉴스 요약 + 시장 지표\n\n"
         f"📊 미국 주요 지수:\n{get_us_indices()}\n\n"
+        f"🇰🇷 한국 주요 지수:\n{get_korean_indices()}\n\n" # 🌟 추가
         f"💱 환율:\n{get_exchange_rates()}\n\n"
+        f"{get_crypto_prices()}\n\n" # 🌟 추가
         f"📉 미국 섹터별 지수 변화:\n{get_sector_etf_changes(TWELVEDATA_API)}\n\n"
         f"{get_buffett_indicator()}\n"
         f"{get_fear_greed_index()}\n\n"
         f"{get_stock_prices(TWELVEDATA_API)}\n\n"
         f"📰 세계 언론사 랭킹 뉴스 (press 074):\n{fetch_media_press_ranking_playwright('074', 3)}"
     )
-
 
 
 def send_to_telegram():
