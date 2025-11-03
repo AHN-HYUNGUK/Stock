@@ -105,57 +105,70 @@ def get_us_indices():
 
 # main.py 파일 내 get_korean_indices 함수를 아래 코드로 교체합니다.
 
+# main.py 파일 내 get_korean_indices 함수를 아래 코드로 교체합니다.
+
 def get_korean_indices():
-    """네이버 금융에서 코스피/코스닥 지수를 크롤링 (안정성 강화)"""
-    url = "https://finance.naver.com/"
+    """TradingView를 사용하여 코스피/코스닥 지수를 크롤링"""
+    # TradingView의 주요 인덱스 페이지
+    url = "https://kr.tradingview.com/markets/indices/quotes-major/"
     res = http_get(url)
     soup = BeautifulSoup(res.text, "html.parser")
     out = []
+
+    # 지수 정보를 담고 있는 테이블 행(tr)을 찾습니다.
+    # 코스피 (KOSPI)와 코스닥 (KOSDAQ) 심볼 또는 이름을 기준으로 필터링합니다.
+    
+    # 🌟 셀렉터: TradingView의 지수 테이블 행을 선택
+    rows = soup.select('div.container-L6T2kIuS table tbody tr')
+
+    def extract_index_data(row):
+        """테이블 행에서 이름, 가격, 변화율을 추출"""
+        try:
+            name_elem = row.select_one('a.title-WA_E9fTj')
+            if not name_elem:
+                return None, None, None
+            
+            # 1. 이름 (코스피 200 또는 코스닥 150)
+            name = name_elem.text.strip()
+
+            # 2. 가격
+            price_elem = row.select_one('div[data-cell-key="price"] > div')
+            price = price_elem.text.strip().replace(",", "") if price_elem else "0"
+            
+            # 3. 등락률 (퍼센트)
+            change_pct_elem = row.select_one('div[data-cell-key="change|24h"]')
+            change_pct = change_pct_elem.text.strip().replace("%", "") if change_pct_elem else "0"
+
+            return name, price, change_pct
+
+        except Exception as e:
+            # print(f"[ERROR] TradingView 데이터 추출 오류: {e}")
+            return None, None, None
 
     def format_index(name, price_str, change_pct_str):
         try:
             price = float(price_str)
             pct = float(change_pct_str)
             icon = "▲" if pct > 0 else "▼" if pct < 0 else "-"
-            return f"{name}: {price:,.2f} ({icon}{pct:+.2f}%)"
+            # TradingView에서 가져오는 이름에 따라 KOSPI/KOSDAQ으로 표기 변경
+            display_name = "코스피 200" if "KOSPI 200" in name else "코스닥 150" if "KOSDAQ 150" in name else name
+            return f"{display_name}: {price:,.2f} ({icon}{pct:+.2f}%)"
         except Exception:
             return f"{name}: 데이터 수집 오류"
 
-    # 코스피/코스닥을 순서대로 처리
-    for i, market_name in enumerate(["코스피", "코스닥"]):
-        # 🌟 nth-child(1)은 코스피, nth-child(2)는 코스닥
-        area = soup.select_one(f"div.section_stock_market > div:nth-child({i+1})")
+    for row in rows:
+        name, price_str, change_pct_str = extract_index_data(row)
         
-        if area:
-            try:
-                # 1. 이름 추출
-                name_elem = area.select_one(".h_title_box a")
-                name = name_elem.text.strip() if name_elem else market_name
-
-                # 2. 가격 추출
-                price_elem = area.select_one(".num_quot .num")
-                price_num_str = price_elem.text.strip().replace(",", "") if price_elem else None
-                
-                # 3. 등락률 추출
-                rate_elem = area.select_one(".change_info .rate")
-                rate_pct_str = rate_elem.text.strip().replace("%", "") if rate_elem else None
-
-                # 4. 데이터 유효성 검사 및 결과 추가
-                if price_num_str and rate_pct_str:
-                    out.append(format_index(name, price_num_str, rate_pct_str))
-                else:
-                    raise ValueError("필요한 가격 또는 등락률 요소를 찾지 못함")
-
-            except Exception as e:
-                print(f"[ERROR] {market_name} 크롤링 실패: {e}")
-                out.append(f"{market_name}: 데이터 수집 오류")
-
+        # KOSPI 200과 KOSDAQ 150만 추출 (대표 지수)
+        if name and ("KOSPI 200" in name or "KOSDAQ 150" in name):
+            out.append(format_index(name, price_str, change_pct_str))
+            
     if not out:
-        return "코스피/코스닥: 지수 패널을 찾을 수 없음"
+        return "코스피/코스닥: 지수 정보를 찾을 수 없음"
         
     return "\n".join(out)
 
-# main.py 파일 내 get_crypto_prices 함수를 아래 코드로 교체합니다.
+
 
 def get_crypto_prices():
     """CoinGecko API를 사용하여 BTC/ETH 시세를 가져옵니다."""
