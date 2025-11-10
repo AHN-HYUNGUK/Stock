@@ -88,7 +88,7 @@ EXCHANGE_KEY    = os.environ['EXCHANGEAPI']
 TWELVEDATA_API  = os.environ["TWELVEDATA_API"]
 FRED_API_KEY    = os.environ["FRED_API_KEY"] 
 # 🌟 os.environ.get() 대신 원래 코드로 되돌려 정확한 키를 읽어오도록 합니다.
-FMP_API_KEY     = os.environ["FMP_KEY_NEW"]
+ALPHAVANTAGE_KEY = os.environ["ALPHAVANTAGE_KEY"]
 TELEGRAM_URL    = f"https://api.telegram.org/bot{TOKEN}/sendMessage"
 today           = datetime.datetime.now().strftime('%Y년 %m월 %d일')
 
@@ -122,35 +122,42 @@ def get_us_indices():
 
 
 def get_korean_indices():
-    """FMP API를 사용하여 코스피와 코스닥 지수를 가져옵니다."""
-    api_key = FMP_API_KEY
-    # FMP 심볼: 코스피 (^KS11), 코스닥 (^KQ11)
-    symbols = {"코스피": "^KS11", "코스닥": "^KQ11"}
+    """Alpha Vantage API를 사용하여 코스피와 코스닥 지수를 가져옵니다."""
+    api_key = ALPHAVANTAGE_KEY
+    # Alpha Vantage 심볼: KOSPI (KOSPI) 및 KOSDAQ (KOSDAQ)
+    symbols = {"코스피": "KOSPI", "코스닥": "KOSDAQ"} 
     out = []
     
     for name, sym in symbols.items():
         try:
-            # FMP Quote API 엔드포인트 사용
-            url = "https://financialmodelingprep.com/api/v3/quote/" + sym
-            j = http_get(url, params={"apikey": api_key}).json()
+            # Alpha Vantage GLOBAL_QUOTE 엔드포인트 사용
+            url = "https://www.alphavantage.co/query"
+            params = {
+                "function": "GLOBAL_QUOTE",
+                "symbol": sym, # Alpha Vantage는 KOSPI/KOSDAQ 심볼을 그대로 사용함
+                "apikey": api_key
+            }
+            j = http_get(url, params=params).json()
             
-            # API 응답 유효성 검사 (리스트의 첫 번째 요소 사용)
-            if not j or j[0].get("symbol") != sym:
-                 raise RuntimeError("API에서 유효한 데이터를 반환하지 않음")
+            data = j.get("Global Quote", {})
+            if not data or not data.get("05. price"):
+                raise RuntimeError("API에서 유효한 지수 데이터를 찾을 수 없음")
 
-            data = j[0]
-            p = data["price"]; c = data["change"]; pct = data["changesPercentage"]
-            icon = "▲" if c > 0 else "▼" if c < 0 else "-"
-            out.append(f"{name}: {p:,.2f} ({icon}{pct:+.2f}%)")
+            p = float(data["05. price"])
+            # Alpha Vantage는 변동률을 10. change percent에 퍼센트 문자열로 제공
+            pct_change = float(data["10. change percent"].replace('%', ''))
+            
+            icon = "▲" if pct_change > 0 else "▼" if pct_change < 0 else "-"
+            out.append(f"{name}: {p:,.2f} ({icon}{pct_change:+.2f}%)")
+            
         except Exception as e:
             print(f"[ERROR] {name} API 수집 실패: {e}")
-            out.append(f"{name}: 데이터 수집 오류 (FMP API)")
+            out.append(f"{name}: 데이터 수집 오류 (Alpha Vantage API)")
             
-    if len(out) == 0 or "데이터 수집 오류" in "".join(out):
+    if not out or "데이터 수집 오류" in "".join(out):
         return "🇰🇷 한국 주요 지수: API 연결 또는 설정 오류"
         
     return "🇰🇷 한국 주요 지수:\n" + "\n".join(out)
-
 
 
 def get_crypto_prices():
