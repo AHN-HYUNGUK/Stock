@@ -205,12 +205,12 @@ def get_exchange_rates():
         f"CNY: {rates.get('CNY', 0):.2f}"
     )
 
-def get_tips_yield(api_key):
-    """FRED API를 사용하여 10년 만기 TIPS (실질금리) 수익률을 가져옵니다 (FII10)."""
+def get_fred_data(api_key, series_id, name, unit=""):
+    """FRED API에서 단일 시계열 데이터를 가져오는 범용 함수."""
     try:
         url = "https://api.stlouisfed.org/fred/series/observations"
         params = {
-            "series_id": "FII10",  # 10-Year Treasury Real Rate (TIPS Yield)
+            "series_id": series_id,
             "api_key": api_key,
             "file_type": "json",
             "sort_order": "desc",
@@ -220,19 +220,27 @@ def get_tips_yield(api_key):
         
         latest_observation = j.get("observations", [{}])[0]
         value_str = latest_observation.get("value")
+        date = latest_observation.get("date", "최신")
         
         if value_str and value_str != ".":
-            tips_yield = float(value_str)
-            date = latest_observation.get("date", "최신")
-            
-            # 실질금리는 보통 퍼센트가 아니라 소수점으로 나오므로 +%로 표시
-            return f"💰 10년 TIPS (실질금리): {tips_yield:+.2f}% (기준일: {date})"
+            value = float(value_str)
+            # TIPS처럼 실질금리나 인플레이션처럼 %로 표시되는 경우가 많으므로 +%로 표시
+            return f"• {name}: {value:+.2f}{unit} (기준일: {date})"
         else:
-            return "💰 10년 TIPS (실질금리): 데이터 없음 (FRED API)"
+            return f"• {name}: 데이터 없음 (FRED API)"
 
     except Exception as e:
-        print(f"[ERROR] TIPS 수익률 수집 실패: {e}")
-        return "💰 10년 TIPS (실질금리): API 연결 오류"
+        print(f"[ERROR] {name} 수집 실패: {e}")
+        return f"• {name}: API 연결 오류"
+
+def get_tips_yield(api_key):
+    """10년 만기 TIPS (실질금리) 수익률 (FII10)"""
+    return get_fred_data(api_key, "FII10", "10년 TIPS (실질금리)", unit="%")
+
+def get_cpi_index(api_key):
+    """미국 소비자 물가 지수 (CPIAUCSL)"""
+    # FRED의 CPIAUCSL은 지수 자체의 레벨 (예: 307.054)을 나타냄
+    return get_fred_data(api_key, "CPIAUCSL", "미국 CPI (지수)", unit="")
 
 
 def get_vix_index(api_key):
@@ -363,12 +371,18 @@ def get_fear_greed_index():
 # ── 메시지/전송 ──────────────────────────────────────────
 
 def build_message():
+    fred_data = (
+        f"🇺🇸 주요 경제 지표 (FRED):\n"
+        f"{get_tips_yield(FRED_API_KEY)}\n"
+        f"{get_cpi_index(FRED_API_KEY)}\n" # 🌟 CPI 지수 추가
+    )
+
     return (
         f"📈 [{today}] 뉴스 요약 + 시장 지표\n\n"
         f"📊 미국 주요 지수:\n{get_us_indices()}\n\n"
         f"🇰🇷 한국 주요 지수:\n{get_korean_indices()}\n\n"
         f"💱 환율:\n{get_exchange_rates()}\n\n"
-        f"{get_tips_yield(FRED_API_KEY)}\n\n"  # 🌟 TIPS Yield 추가
+        f"{fred_data}\n"
         f"{get_crypto_prices()}\n\n"
         f"📉 미국 섹터별 지수 변화:\n{get_sector_etf_changes(TWELVEDATA_API)}\n\n"
         f"{get_vix_index(TWELVEDATA_API)}\n"
