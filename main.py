@@ -49,17 +49,33 @@ def http_get(url, *, params=None, timeout=20):
     r.raise_for_status()
     return r
 
-def http_post(url, *, data=None, timeout=20):
-    if HTTP_DEBUG:
-        print(f"[HTTP POST] {_mask_url(url)} (fields: {list((data or {}).keys())})")
-    r = S.post(url, data=data, timeout=timeout, proxies=_DEF_PROXIES, allow_redirects=True)
-    
-    # 🌟 이 부분을 추가하여 400 에러 발생 시 응답 내용을 출력합니다.
-    if r.status_code == 400:
-        print(f"[ERROR 400 DETAILS] {r.text}")
+
+# main.py 파일 내 http_post 함수를 아래 코드로 교체합니다.
+
+def http_post(url, data={}):
+    """HTTP POST 요청을 보냅니다. (텔레그램 오류 무시 로직 추가)"""
+    try:
+        r = requests.post(url, data=data)
         
-    r.raise_for_status()
-    return r
+        # 🌟 텔레그램 API 오류 코드 (400)만 특별히 처리합니다.
+        if "api.telegram.org" in url and r.status_code == 400:
+            print(f"[WARN] 텔레그램 400 오류 발생: {r.status_code}")
+            # 오류 메시지 출력 후, 정상 상태가 아니더라도 raise_for_status()를 건너뜁니다.
+            # 텔레그램 API의 400 오류 메시지는 JSON으로 제공됩니다.
+            try:
+                error_details = r.json()
+                print(f"[ERROR 400 DETAILS] {error_details}")
+            except Exception:
+                print(f"[ERROR 400 DETAILS] {r.text}")
+            return r # 오류 객체를 반환하되, 예외 발생은 막습니다.
+
+        r.raise_for_status() # 4xx, 5xx 에러가 발생하면 예외를 발생시킵니다.
+        return r
+    except requests.exceptions.RequestException as e:
+        # 그 외 연결 오류나 다른 HTTP 오류는 여전히 처리합니다.
+        print(f"[ERROR] HTTP POST 요청 실패: {e}")
+        return None
+
 
 # (dotenv 안 쓰면 그대로)
 load_dotenv = None
