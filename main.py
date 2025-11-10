@@ -205,6 +205,29 @@ def get_exchange_rates():
         f"CNY: {rates.get('CNY', 0):.2f}"
     )
 
+def get_vix_index(api_key):
+    """TwelveData API를 사용하여 VIX 지수 (공포 지수)를 가져옵니다."""
+    try:
+        j = http_get("https://api.twelvedata.com/quote",
+                     params={"symbol": "VIX", "apikey": api_key}).json()
+        p = float(j["close"])
+        c = float(j["change"])
+        pct = float(j["percent_change"])
+        icon = "▲" if c > 0 else "▼" if c < 0 else "-"
+
+        # VIX 지수 해석
+        if p < 15: classification = "낮음 (시장 안정)"
+        elif p < 20: classification = "보통 (주의)"
+        elif p < 30: classification = "높음 (리스크 경고)"
+        else: classification = "매우 높음 (공포 심리)"
+
+        return f"🔥 VIX 지수(공포 지수): {p:.2f} {icon}{abs(c):.2f} ({pct:+.2f}%) - {classification}"
+
+    except Exception as e:
+        print(f"[ERROR] VIX 지수 수집 실패: {e}")
+        return "🔥 VIX 지수: 정보 없음"
+
+
 def get_sector_etf_changes(api_key):
     etfs = {"💻 기술": "XLK", "🏦 금융": "XLF", "💊 헬스케어": "XLV", "⚡ 에너지": "XLE", "🛒 소비재": "XLY"}
     out = []
@@ -317,6 +340,7 @@ def build_message():
         f"💱 환율:\n{get_exchange_rates()}\n\n"
         f"{get_crypto_prices()}\n\n"
         f"📉 미국 섹터별 지수 변화:\n{get_sector_etf_changes(TWELVEDATA_API)}\n\n"
+        f"{get_vix_index(TWELVEDATA_API)}\n"  # 🌟 VIX 지수 추가
         f"{get_fear_greed_index()}\n\n"
         f"{get_stock_prices(TWELVEDATA_API)}"
     )
