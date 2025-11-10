@@ -205,6 +205,36 @@ def get_exchange_rates():
         f"CNY: {rates.get('CNY', 0):.2f}"
     )
 
+def get_tips_yield(api_key):
+    """FRED API를 사용하여 10년 만기 TIPS (실질금리) 수익률을 가져옵니다 (FII10)."""
+    try:
+        url = "https://api.stlouisfed.org/fred/series/observations"
+        params = {
+            "series_id": "FII10",  # 10-Year Treasury Real Rate (TIPS Yield)
+            "api_key": api_key,
+            "file_type": "json",
+            "sort_order": "desc",
+            "limit": 1
+        }
+        j = http_get(url, params=params).json()
+        
+        latest_observation = j.get("observations", [{}])[0]
+        value_str = latest_observation.get("value")
+        
+        if value_str and value_str != ".":
+            tips_yield = float(value_str)
+            date = latest_observation.get("date", "최신")
+            
+            # 실질금리는 보통 퍼센트가 아니라 소수점으로 나오므로 +%로 표시
+            return f"💰 10년 TIPS (실질금리): {tips_yield:+.2f}% (기준일: {date})"
+        else:
+            return "💰 10년 TIPS (실질금리): 데이터 없음 (FRED API)"
+
+    except Exception as e:
+        print(f"[ERROR] TIPS 수익률 수집 실패: {e}")
+        return "💰 10년 TIPS (실질금리): API 연결 오류"
+
+
 def get_vix_index(api_key):
     """TwelveData API를 사용하여 VIX 지수 (공포 지수)를 가져옵니다."""
     try:
@@ -338,9 +368,10 @@ def build_message():
         f"📊 미국 주요 지수:\n{get_us_indices()}\n\n"
         f"🇰🇷 한국 주요 지수:\n{get_korean_indices()}\n\n"
         f"💱 환율:\n{get_exchange_rates()}\n\n"
+        f"{get_tips_yield(FRED_API_KEY)}\n\n"  # 🌟 TIPS Yield 추가
         f"{get_crypto_prices()}\n\n"
         f"📉 미국 섹터별 지수 변화:\n{get_sector_etf_changes(TWELVEDATA_API)}\n\n"
-        f"{get_vix_index(TWELVEDATA_API)}\n"  # 🌟 VIX 지수 추가
+        f"{get_vix_index(TWELVEDATA_API)}\n"
         f"{get_fear_greed_index()}\n\n"
         f"{get_stock_prices(TWELVEDATA_API)}"
     )
@@ -357,7 +388,6 @@ def send_to_telegram():
                 msg = msg[:3990] + "\n(※ 일부 생략됨)"
             res = http_post(TELEGRAM_URL, data={"chat_id": chat_id.strip(), "text": msg})
             print(f"✅ {chat_id} 전송 완료 | 코드: {res.status_code}")
-
 
 
 # ── 스케줄러 ──────────────────────────────────────────────
