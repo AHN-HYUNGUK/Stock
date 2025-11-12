@@ -117,12 +117,12 @@ def get_us_indices():
         print(f"[ERROR] 미국 지수 수집 실패: {e}")
         return "Dow Jones: 데이터 수집 오류\nS&P 500 derived: 데이터 수집 오류\nNasdaq: 데이터 수집 오류"
 
-
 def get_korean_indices_twelve(api_key):
-    """🌟 수정: TwelveData API를 사용하여 코스피와 코스닥 지수를 가져옵니다."""
-    symbols = {"코스피": "KOSPI", "코스닥": "KOSDAQ"} 
+    """TwelveData API를 사용하여 코스피와 코스닥 지수를 가져옵니다."""
+    # 🌟 심볼을 TwelveData에서 사용하는 KS11(KOSPI), KQ11(KOSDAQ)으로 수정
+    symbols = {"코스피": "KS11", "코스닥": "KQ11"} # TwelveData의 국가 지수 심볼
     out = []
-    
+
     for name, sym in symbols.items():
         try:
             j = http_get("https://api.twelvedata.com/quote",
@@ -242,10 +242,11 @@ def get_cpi_index(api_key):
     """미국 소비자 물가 지수 (CPIAUCSL)"""
     return get_fred_data(api_key, "CPIAUCSL", "미국 CPI (지수)", unit="")
 
-
 def get_vix_index(api_key):
     """TwelveData API를 사용하여 VIX 지수 (공포 지수)를 가져옵니다."""
     try:
+        # 🌟 심볼을 TwelveData에서 사용하는 VIX 심볼로 확인합니다.
+        # VIX는 보통 VIX로 작동하나, 안되면 ^VIX 또는 다른 API(Alpha Vantage) 고려
         j = http_get("https://api.twelvedata.com/quote",
                      params={"symbol": "VIX", "apikey": api_key}).json()
         
