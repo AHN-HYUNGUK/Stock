@@ -56,19 +56,16 @@ def http_post(url, data={}):
         # 🌟 텔레그램 API 오류 코드 (400)만 특별히 처리합니다.
         if "api.telegram.org" in url and r.status_code == 400:
             print(f"[WARN] 텔레그램 400 오류 발생: {r.status_code}")
-            # 오류 메시지 출력 후, 정상 상태가 아니더라도 raise_for_status()를 건너뜁니다.
-            # 텔레그램 API의 400 오류 메시지는 JSON으로 제공됩니다.
             try:
                 error_details = r.json()
                 print(f"[ERROR 400 DETAILS] {error_details}")
             except Exception:
                 print(f"[ERROR 400 DETAILS] {r.text}")
-            return r # 오류 객체를 반환하되, 예외 발생은 막습니다.
+            return r
 
-        r.raise_for_status() # 4xx, 5xx 에러가 발생하면 예외를 발생시킵니다.
+        r.raise_for_status() 
         return r
     except requests.exceptions.RequestException as e:
-        # 그 외 연결 오류나 다른 HTTP 오류는 여전히 처리합니다.
         print(f"[ERROR] HTTP POST 요청 실패: {e}")
         return None
 
@@ -83,11 +80,10 @@ CHAT_IDS          = os.environ['CHAT_IDS'].split(",")
 EXCHANGE_KEY      = os.environ['EXCHANGEAPI']
 TWELVEDATA_API    = os.environ["TWELVEDATA_API"]
 FRED_API_KEY      = os.environ["FRED_API_KEY"]  
-ALPHAVANTAGE_KEY = os.environ["ALPHAVANTAGE_KEY"]
+ALPHAVANTAGE_KEY  = os.environ["ALPHAVANTAGE_KEY"] # (사용하지 않음, 호환성 유지)
 TELEGRAM_URL      = f"https://api.telegram.org/bot{TOKEN}/sendMessage"
 today             = datetime.datetime.now().strftime('%Y년 %m월 %d일')
 
-# 🌟 수정된 코드: 각 항목의 앞뒤 공백을 제거하고, 빈 문자열인 경우 제외
 CHAT_IDS = [
     _id.strip() 
     for _id in os.environ['CHAT_IDS'].split(",") 
@@ -96,71 +92,64 @@ CHAT_IDS = [
 
 
 # ── 지표/시세 수집 ────────────────────────────────────────
+
 def get_us_indices():
+    # Investing.com 스크래핑 로직 유지
     url = "https://www.investing.com/indices/major-indices"
-    res = http_get(url)
-    soup = BeautifulSoup(res.text, "html.parser")
-    rows = soup.select("table tbody tr")[:3]
-    out = []
-    for r in rows:
-        try:
-            name = r.select_one("td:nth-child(2)").text.strip()
-            now  = float(r.select_one("td:nth-child(3)").text.replace(",", ""))
-            prev = float(r.select_one("td:nth-child(4)").text.replace(",", ""))
-            diff = now - prev
-            pct  = diff / prev * 100
-            icon = "▲" if diff > 0 else "▼" if diff < 0 else "-"
-            out.append(f"{name}: {now:,.2f} {icon}{abs(diff):,.2f} ({pct:+.2f}%)")
-        except Exception:
-            out.append(f"{name}: 데이터 오류")
-    return "\n".join(out)
+    try:
+        res = http_get(url)
+        soup = BeautifulSoup(res.text, "html.parser")
+        rows = soup.select("table tbody tr")[:3]
+        out = []
+        for r in rows:
+            try:
+                name = r.select_one("td:nth-child(2)").text.strip()
+                now  = float(r.select_one("td:nth-child(3)").text.replace(",", ""))
+                prev = float(r.select_one("td:nth-child(4)").text.replace(",", ""))
+                diff = now - prev
+                pct  = diff / prev * 100
+                icon = "▲" if diff > 0 else "▼" if diff < 0 else "-"
+                out.append(f"{name}: {now:,.2f} {icon}{abs(diff):,.2f} ({pct:+.2f}%)")
+            except Exception:
+                out.append(f"{name}: 데이터 오류")
+        return "\n".join(out)
+    except Exception as e:
+        print(f"[ERROR] 미국 지수 수집 실패: {e}")
+        return "Dow Jones: 데이터 수집 오류\nS&P 500 derived: 데이터 수집 오류\nNasdaq: 데이터 수집 오류"
 
 
-def get_korean_indices():
-    """Alpha Vantage API를 사용하여 코스피와 코스닥 지수를 가져옵니다."""
-    api_key = ALPHAVANTAGE_KEY
-    # Alpha Vantage 심볼: KOSPI (KOSPI) 및 KOSDAQ (KOSDAQ)
+def get_korean_indices_twelve(api_key):
+    """🌟 수정: TwelveData API를 사용하여 코스피와 코스닥 지수를 가져옵니다."""
     symbols = {"코스피": "KOSPI", "코스닥": "KOSDAQ"} 
     out = []
     
     for name, sym in symbols.items():
         try:
-            # Alpha Vantage GLOBAL_QUOTE 엔드포인트 사용
-            url = "https://www.alphavantage.co/query"
-            params = {
-                "function": "GLOBAL_QUOTE",
-                "symbol": sym, # Alpha Vantage는 KOSPI/KOSDAQ 심볼을 그대로 사용함
-                "apikey": api_key
-            }
-            j = http_get(url, params=params).json()
+            j = http_get("https://api.twelvedata.com/quote",
+                         params={"symbol": sym, "apikey": api_key}).json()
             
-            data = j.get("Global Quote", {})
-            if not data or not data.get("05. price"):
-                raise RuntimeError("API에서 유효한 지수 데이터를 찾을 수 없음")
+            # API 응답 오류 처리
+            if j.get('status') == 'error':
+                 raise RuntimeError(f"TwelveData Error: {j.get('message', '알 수 없는 오류')}")
 
-            p = float(data["05. price"])
-            # Alpha Vantage는 변동률을 10. change percent에 퍼센트 문자열로 제공
-            pct_change = float(data["10. change percent"].replace('%', ''))
-            
-            icon = "▲" if pct_change > 0 else "▼" if pct_change < 0 else "-"
-            out.append(f"{name}: {p:,.2f} ({icon}{pct_change:+.2f}%)")
+            p = float(j["close"])
+            pct = float(j["percent_change"])
+            icon = "▲" if pct > 0 else "▼" if pct < 0 else "-"
+            out.append(f"{name}: {p:,.2f} ({icon}{pct:+.2f}%)")
             
         except Exception as e:
             print(f"[ERROR] {name} API 수집 실패: {e}")
-            out.append(f"{name}: 데이터 수집 오류 (Alpha Vantage API)")
+            out.append(f"{name}: 데이터 수집 오류 (TwelveData API)")
             
     if not out or "데이터 수집 오류" in "".join(out):
-        return "🇰🇷 한국 주요 지수: API 연결 또는 설정 오류"
+        return "API 연결 또는 설정 오류"
         
-    return "🇰🇷 한국 주요 지수:\n" + "\n".join(out)
+    return "\n".join(out)
 
 
 def get_crypto_prices():
     """CoinGecko API를 사용하여 BTC/ETH 시세를 가져옵니다."""
-    # CoinGecko의 공개 API (API 키 불필요)
     url = "https://api.coingecko.com/api/v3/simple/price"
-    
-    # ids: 코인 ID, vs_currencies: 비교 통화, include_24hr_change: 24시간 변동률 요청
     params = {
         "ids": "bitcoin,ethereum", 
         "vs_currencies": "usd", 
@@ -191,19 +180,32 @@ def get_crypto_prices():
         print(f"[ERROR] 암호화폐 시세 수집 실패: {e}")
         out.append("• 비트코인/이더리움: 정보 없음 (CoinGecko API 오류)")
             
-    return "🌐 주요 암호화폐 시세:\n" + "\n".join(out)
+    return "\n".join(out)
 
 
 def get_exchange_rates():
-    j = http_get(f"https://v6.exchangerate-api.com/v6/{EXCHANGE_KEY}/latest/USD").json()
-    rates = j.get("conversion_rates", {})
-    return (
-        f"USD: 1.00 기준\n"
-        f"KRW: {rates.get('KRW', 0):.2f}\n"
-        f"JPY (100엔): {rates.get('JPY', 0) * 100:.2f}\n"
-        f"EUR: {rates.get('EUR', 0):.2f}\n"
-        f"CNY: {rates.get('CNY', 0):.2f}"
-    )
+    """🌟 수정: JPY 환율을 100엔당 KRW로 정확히 계산합니다."""
+    try:
+        j = http_get(f"https://v6.exchangerate-api.com/v6/{EXCHANGE_KEY}/latest/USD").json()
+        rates = j.get("conversion_rates", {})
+        
+        krw_rate = rates.get('KRW', 0) # USD당 KRW
+        jpy_rate = rates.get('JPY', 0) # USD당 JPY
+        
+        # 100 JPY당 KRW 계산: (KRW/USD) / (JPY/USD) * 100
+        jpy_to_krw_100 = (krw_rate / jpy_rate) * 100 if krw_rate and jpy_rate else 0
+
+        return (
+            f"USD: 1.00 기준\n"
+            f"KRW: {krw_rate:.2f}\n"
+            f"JPY (100엔): {jpy_to_krw_100:.2f}\n" # <-- 수정된 계산값 적용
+            f"EUR: {rates.get('EUR', 0):.2f}\n"
+            f"CNY: {rates.get('CNY', 0):.2f}"
+        )
+    except Exception as e:
+        print(f"[ERROR] 환율 수집 실패: {e}")
+        return "환율 데이터 수집 오류"
+
 
 def get_fred_data(api_key, series_id, name, unit=""):
     """FRED API에서 단일 시계열 데이터를 가져오는 범용 함수."""
@@ -224,7 +226,6 @@ def get_fred_data(api_key, series_id, name, unit=""):
         
         if value_str and value_str != ".":
             value = float(value_str)
-            # TIPS처럼 실질금리나 인플레이션처럼 %로 표시되는 경우가 많으므로 +%로 표시
             return f"• {name}: {value:+.2f}{unit} (기준일: {date})"
         else:
             return f"• {name}: 데이터 없음 (FRED API)"
@@ -239,7 +240,6 @@ def get_tips_yield(api_key):
 
 def get_cpi_index(api_key):
     """미국 소비자 물가 지수 (CPIAUCSL)"""
-    # FRED의 CPIAUCSL은 지수 자체의 레벨 (예: 307.054)을 나타냄
     return get_fred_data(api_key, "CPIAUCSL", "미국 CPI (지수)", unit="")
 
 
@@ -248,6 +248,10 @@ def get_vix_index(api_key):
     try:
         j = http_get("https://api.twelvedata.com/quote",
                      params={"symbol": "VIX", "apikey": api_key}).json()
+        
+        if j.get('status') == 'error':
+             raise RuntimeError(f"TwelveData Error: {j.get('message', '알 수 없는 오류')}")
+             
         p = float(j["close"])
         c = float(j["change"])
         pct = float(j["percent_change"])
@@ -259,11 +263,11 @@ def get_vix_index(api_key):
         elif p < 30: classification = "높음 (리스크 경고)"
         else: classification = "매우 높음 (공포 심리)"
 
-        return f"🔥 VIX 지수(공포 지수): {p:.2f} {icon}{abs(c):.2f} ({pct:+.2f}%) - {classification}"
+        return f"<b>🔥 VIX 지수(공포 지수):</b> {p:.2f} {icon}{abs(c):.2f} ({pct:+.2f}%) - {classification}"
 
     except Exception as e:
         print(f"[ERROR] VIX 지수 수집 실패: {e}")
-        return "🔥 VIX 지수: 정보 없음"
+        return "<b>🔥 VIX 지수:</b> 정보 없음"
 
 
 def get_sector_etf_changes(api_key):
@@ -273,6 +277,8 @@ def get_sector_etf_changes(api_key):
         try:
             j = http_get("https://api.twelvedata.com/quote",
                          params={"symbol": sym, "apikey": api_key}).json()
+            if j.get('status') == 'error': continue # TwelveData 오류시 다음 항목으로
+                         
             p = float(j["close"]); c = float(j["change"]); pct = float(j["percent_change"])
             icon = "▲" if c > 0 else "▼" if c < 0 else "-"
             out.append(f"{name}: {p:.2f} {icon}{abs(c):.2f} ({pct:+.2f}%)")
@@ -295,27 +301,29 @@ def get_stock_prices(api_key):
         try:
             j = http_get("https://api.twelvedata.com/quote",
                          params={"symbol": sym, "apikey": api_key}).json()
+            if j.get('status') == 'error': continue # TwelveData 오류시 다음 항목으로
+                         
             p = float(j["close"]); c = float(j["change"]); pct = float(j["percent_change"])
             icon = "▲" if c > 0 else "▼" if c < 0 else "-"
             out.append(f"• {name}: ${p:.2f} {icon}{abs(c):.2f} ({pct:+.2f}%)")
         except Exception:
             out.append(f"• {name}: 정보 없음")
-    return "📌 주요 종목 시세:\n" + "\n".join(out)
+    return "\n".join(out)
 
-def get_korean_stock_price(stock_code, name):
+
+def get_fear_greed_index():
     try:
-        url = f"https://finance.naver.com/item/sise.naver?code={stock_code}"
-        res = http_get(url)
-        soup = BeautifulSoup(res.text, "html.parser")
-        price = soup.select_one("strong#_nowVal").text.replace(",", "")
-        change = soup.select_one("span#_change").text.strip().replace(",", "")
-        rate = soup.select_one("span#_rate").text.strip()
-        icon = "▲" if "-" not in change else "▼"
-        return f"• {name}: {int(price):,}원 {icon}{change.replace('-', '')} ({rate})"
-    except Exception:
-        return f"• {name}: 정보 없음"
+        j = http_get("https://api.alternative.me/fng/", params={"limit": 1}).json()
+        data = j["data"][0]
+        value = data["value"]; label = data["value_classification"]
+        return f"<b>📌 공포·탐욕 지수 (코인 Crypto 기준):</b> {value}점 ({label})"
+    except Exception as e:
+        print("[ERROR] 공포·탐욕 지수 예외:", e)
+        return "<b>📌 공포·탐욕 지수:</b> 가져오기 실패"
+
 
 def fetch_us_market_news_titles():
+    # 뉴스 스크래핑 로직 유지 (안정성 문제로 생략)
     try:
         html = http_get("https://finance.yahoo.com/").text
         soup = BeautifulSoup(html, "html.parser")
@@ -328,80 +336,84 @@ def fetch_us_market_news_titles():
         print("[WARN] yahoo fetch failed:", repr(e))
         return "(뉴스 수집 실패)"
 
-# ── 네이버 랭킹 뉴스 (Playwright, 타임아웃 폴백) ───────────────
+
 def fetch_media_press_ranking_playwright(press_id="215", count=10):
+    # Playwright 로직 유지 (복잡도/길이 문제로 내부 함수 본문 생략)
     url = f"https://media.naver.com/press/{press_id}/ranking"
     result = f"📌 언론사 {press_id} 랭킹 뉴스 TOP {count}\n"
     anchors = []
-    with sync_playwright() as p:
-        browser = p.chromium.launch(args=["--no-sandbox"])
-        page = browser.new_page()
-        page.goto(url)
-        page.wait_for_load_state("networkidle")
-        page.wait_for_timeout(2000)
-        try:
-            page.wait_for_selector(f"a[href*='/article/{press_id}/']", timeout=10000)
-            anchors = page.query_selector_all(f"a[href*='/article/{press_id}/']")[:count]
-        except PlaywrightTimeoutError:
-            anchors = page.query_selector_all("ul.list_ranking li a")[:count]
-
-        for a in anchors:
-            img = a.query_selector("img")
-            title = (img.get_attribute("alt").strip() if img and img.get_attribute("alt")
-                     else a.inner_text().strip())
-            href = (a.get_attribute("href") or "").strip()
-            if href and not href.startswith("http"):
-                href = "https://n.news.naver.com" + href
-            if title:
-                result += f"• {title}\n👉 {href}\n"
-        browser.close()
-    return result if anchors else f"• 현재 시점에 해당 언론사의 랭킹 뉴스가 없습니다.\n"
-
-def get_fear_greed_index():
     try:
-        j = http_get("https://api.alternative.me/fng/", params={"limit": 1}).json()
-        data = j["data"][0]
-        value = data["value"]; label = data["value_classification"]
-        return f"📌 공포·탐욕 지수 (코인 Crypto 기준): {value}점 ({label})"
+        with sync_playwright() as p:
+            browser = p.chromium.launch(args=["--no-sandbox"])
+            page = browser.new_page()
+            page.goto(url)
+            page.wait_for_load_state("networkidle")
+            page.wait_for_timeout(2000) # 로딩 대기
+            
+            try:
+                page.wait_for_selector(f"a[href*='/article/{press_id}/']", timeout=10000)
+                anchors = page.query_selector_all(f"a[href*='/article/{press_id}/']")[:count]
+            except PlaywrightTimeoutError:
+                # 타임아웃 발생 시 일반적인 리스트 항목으로 대체 시도
+                anchors = page.query_selector_all("ul.list_ranking li a")[:count]
+
+            for a in anchors:
+                img = a.query_selector("img")
+                title = (img.get_attribute("alt").strip() if img and img.get_attribute("alt")
+                         else a.inner_text().strip())
+                href = (a.get_attribute("href") or "").strip()
+                if href and not href.startswith("http"):
+                    href = "https://n.news.naver.com" + href
+                if title:
+                    result += f"• {title}\n👉 {href}\n"
+            browser.close()
     except Exception as e:
-        print("[ERROR] 공포·탐욕 지수 예외:", e)
-        return "📌 공포·탐욕 지수: 가져오기 실패"
+        print(f"[ERROR] Playwright 뉴스 수집 오류: {e}")
+        return "📌 네이버 랭킹 뉴스: 수집 오류 발생"
+
+    return result if anchors else f"• 현재 시점에 해당 언론사의 랭킹 뉴스가 없습니다.\n"
 
 
 # ── 메시지/전송 ──────────────────────────────────────────
 
 def build_message():
+    # 🌟 HTML <b> 태그를 사용하여 제목 포맷팅
     fred_data = (
-        f"🇺🇸 주요 경제 지표 (FRED):\n"
+        f"<b>🇺🇸 주요 경제 지표 (FRED)</b>:\n"
         f"{get_tips_yield(FRED_API_KEY)}\n"
-        f"{get_cpi_index(FRED_API_KEY)}\n" # 🌟 CPI 지수 추가
+        f"{get_cpi_index(FRED_API_KEY)}\n"
     )
+    
+    # 🌟 KOSPI/KOSDAQ 함수 교체
+    korean_indices = get_korean_indices_twelve(TWELVEDATA_API) 
 
     return (
-        f"📈 [{today}] 뉴스 요약 + 시장 지표\n\n"
-        f"📊 미국 주요 지수:\n{get_us_indices()}\n\n"
-        f"🇰🇷 한국 주요 지수:\n{get_korean_indices()}\n\n"
-        f"💱 환율:\n{get_exchange_rates()}\n\n"
+        f"<b>📈 [{today}] 뉴스 요약 + 시장 지표</b>\n\n"
+        f"<b>📊 미국 주요 지수</b>:\n{get_us_indices()}\n\n"
+        f"<b>🇰🇷 한국 주요 지수</b>:\n{korean_indices}\n\n" # 교체된 함수 사용
+        f"<b>💱 환율</b>:\n{get_exchange_rates()}\n\n"
         f"{fred_data}\n"
-        f"{get_crypto_prices()}\n\n"
-        f"📉 미국 섹터별 지수 변화:\n{get_sector_etf_changes(TWELVEDATA_API)}\n\n"
-        f"{get_vix_index(TWELVEDATA_API)}\n"
-        f"{get_fear_greed_index()}\n\n"
-        f"{get_stock_prices(TWELVEDATA_API)}"
+        f"<b>🌐 주요 암호화폐 시세</b>:\n{get_crypto_prices()}\n\n"
+        f"<b>📉 미국 섹터별 지수 변화</b>:\n{get_sector_etf_changes(TWELVEDATA_API)}\n\n"
+        f"{get_vix_index(TWELVEDATA_API)}\n" # <b> 태그는 함수 내부에서 적용됨
+        f"{get_fear_greed_index()}\n\n" # <b> 태그는 함수 내부에서 적용됨
+        f"<b>📌 주요 종목 시세</b>:\n{get_stock_prices(TWELVEDATA_API)}"
     )
 
 
 def send_to_telegram():
     part1 = build_message()
-    # 네이버 랭킹 뉴스 (215)는 그대로 유지됩니다.
     part2 = fetch_media_press_ranking_playwright("215", 10)
 
     for chat_id in CHAT_IDS:  # ✅ 여러 명에게 순차 전송
         for msg in (part1, part2):
             if len(msg) > 4000:
                 msg = msg[:3990] + "\n(※ 일부 생략됨)"
-            res = http_post(TELEGRAM_URL, data={"chat_id": chat_id.strip(), "text": msg})
-            print(f"✅ {chat_id} 전송 완료 | 코드: {res.status_code}")
+            
+            # 🌟 parse_mode='HTML'을 추가하여 포맷팅 적용
+            data = {"chat_id": chat_id.strip(), "text": msg, "parse_mode": "HTML"}
+            res = http_post(TELEGRAM_URL, data=data)
+            print(f"✅ {chat_id} 전송 완료 | 코드: {res.status_code if res else 'N/A'}")
 
 
 # ── 스케줄러 ──────────────────────────────────────────────
