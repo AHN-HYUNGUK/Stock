@@ -75,8 +75,6 @@ load_dotenv = None
 
 
 # ── 환경 변수 ─────────────────────────────────────────────
-# ✅ 이번 업데이트에서는 전부 "기존에 이미 발급받은 무료 API 키"만 재사용합니다.
-#    (FRED, TwelveData, exchangerate-api, CoinGecko 모두 무료 플랜 기준)
 TOKEN             = os.environ['TOKEN']
 CHAT_IDS          = os.environ['CHAT_IDS'].split(",")
 EXCHANGE_KEY      = os.environ['EXCHANGEAPI']
@@ -112,7 +110,10 @@ def twelvedata_get(params, timeout=20):
 
 
 def twelvedata_quote_line(name, symbol, api_key, prefix="•", unit_fmt="{:.2f}"):
-    """TwelveData quote 하나를 가져와 한 줄짜리 문자열로 변환하는 공용 함수."""
+    """TwelveData quote 하나를 가져와 한 줄짜리 문자열로 변환하는 공용 함수.
+    ✅ 지수(KS11, VIX, SOX 등)는 무료 플랜에서 404가 나는 것으로 확인되어,
+       이제부터는 해당 지수를 추종하는 '미국 상장 ETF/주식' 심볼만 사용합니다.
+    """
     try:
         j = twelvedata_get({"symbol": symbol, "apikey": api_key}).json()
         print(f"[DEBUG] {name}({symbol}) 응답: {j}")
@@ -131,62 +132,30 @@ def twelvedata_quote_line(name, symbol, api_key, prefix="•", unit_fmt="{:.2f}"
 
 # ── 지표/시세 수집 ────────────────────────────────────────
 
-def get_us_indices():
-    url = "https://www.investing.com/indices/major-indices"
-    try:
-        res = http_get(url)
-        soup = BeautifulSoup(res.text, "html.parser")
-        rows = soup.select("table tbody tr")[:3]
-        out = []
-        for r in rows:
-            name = "알 수 없음"
-            try:
-                name = r.select_one("td:nth-child(2)").text.strip()
-                now  = float(r.select_one("td:nth-child(3)").text.replace(",", ""))
-                prev = float(r.select_one("td:nth-child(4)").text.replace(",", ""))
-                diff = now - prev
-                pct  = diff / prev * 100
-                icon = "▲" if diff > 0 else "▼" if diff < 0 else "-"
-                out.append(f"{name}: {now:,.2f} {icon}{abs(diff):,.2f} ({pct:+.2f}%)")
-            except Exception:
-                out.append(f"{name}: 데이터 오류")
-        if not out:
-            raise RuntimeError("테이블 파싱 결과가 비어있음 (사이트 구조 변경 또는 접속 차단 가능성)")
-        return "\n".join(out)
-    except Exception as e:
-        print(f"[ERROR] 미국 지수 수집 실패: {e}")
-        try:
-            print(f"[DEBUG] investing.com 응답 앞부분: {res.text[:300]}")
-        except Exception:
-            pass
-        return "Dow Jones: 데이터 수집 오류\nS&P 500: 데이터 수집 오류\nNasdaq: 데이터 수집 오류"
-
-
-def get_korean_indices_twelve(api_key):
-    symbols = {"코스피": "KS11", "코스닥": "KQ11"}
+# ✅ 수정: investing.com 스크래핑은 403으로 완전히 차단된 것이 로그로 확인되어 제거.
+#    대신 이미 안정적으로 작동이 검증된 TwelveData ETF 시세로 대체합니다.
+#    ⚠️ ETF 가격은 지수 "포인트"와 스케일이 다릅니다(예: SPY ≈ S&P500의 1/10 수준).
+#       등락률(%)은 실제 지수와 거의 동일하게 움직이므로 추세 파악용으로는 유효하지만,
+#       "가격" 자체를 지수 포인트로 착각하지 않도록 이름에 ETF임을 명시합니다.
+def get_us_index_proxies(api_key):
+    proxies = {
+        "다우존스 추종 ETF (DIA)": "DIA",
+        "S&P500 추종 ETF (SPY)": "SPY",
+        "나스닥100 추종 ETF (QQQ)": "QQQ",
+    }
     out = []
-
-    for name, sym in symbols.items():
-        try:
-            j = twelvedata_get({"symbol": sym, "apikey": api_key}).json()
-            print(f"[DEBUG] {name}({sym}) 응답: {j}")
-
-            if j.get('status') == 'error':
-                raise RuntimeError(f"TwelveData Error: {j.get('message', '알 수 없는 오류')}")
-
-            p = float(j["close"])
-            pct = float(j["percent_change"])
-            icon = "▲" if pct > 0 else "▼" if pct < 0 else "-"
-            out.append(f"{name}: {p:,.2f} ({icon}{pct:+.2f}%)")
-
-        except Exception as e:
-            print(f"[ERROR] {name} API 수집 실패: {e}")
-            out.append(f"{name}: 데이터 수집 오류 (TwelveData API)")
-
-    if not out or "데이터 수집 오류" in "".join(out):
-        return "API 연결 또는 설정 오류"
-
+    for name, sym in proxies.items():
+        out.append(twelvedata_quote_line(name, sym, api_key, unit_fmt="${:.2f}"))
     return "\n".join(out)
+
+
+# ✅ 수정: 코스피(KS11) 심볼은 무료 플랜에서 404 확인됨.
+#    한국 대형주 비중이 큰 미국 상장 ETF(EWY)로 대체 — 코스피 "그 자체"는 아니고 근사치입니다.
+#    코스닥은 마땅한 미국 상장 추종 ETF가 없어 이번 버전에서는 제외했습니다.
+def get_korea_proxy_twelve(api_key):
+    return twelvedata_quote_line(
+        "한국 대형주 ETF (EWY, 코스피 근사치)", "EWY", api_key, unit_fmt="${:.2f}"
+    )
 
 
 def get_crypto_prices():
@@ -282,7 +251,6 @@ def get_cpi_index(api_key):
     return get_fred_data(api_key, "CPIAUCSL", "미국 CPI (지수)", unit="")
 
 
-# ✅ 신규 추가 (무료, FRED) ────────────────────────────────
 def get_10y_treasury_yield(api_key):
     """미국 10년물 국채 명목금리 (DGS10)"""
     return get_fred_data(api_key, "DGS10", "미국 10년물 국채금리", unit="%")
@@ -322,15 +290,17 @@ def get_high_yield_spread(api_key):
     """
     하이일드 신용스프레드 (BAMLH0A0HYM2, ICE BofA US High Yield OAS).
     신용시장 위험 선호도 지표 — 스프레드 확대는 위험회피 신호.
-    ⚠️ 이 시리즈 ID는 실행 로그에서 실제 응답을 한 번 확인해보시길 권장합니다.
     """
     return get_fred_data(api_key, "BAMLH0A0HYM2", "하이일드 신용스프레드", unit="%")
 
 
-def get_vix_index(api_key):
+# ✅ 수정: VIX 지수 자체는 이론값이라 원래 매매·조회가 불가능한 경우가 많고,
+#    TwelveData 무료 플랜에서도 404가 확인됨. VIX 선물을 추종하는 ETF(VIXY)로 대체.
+#    ⚠️ VIXY는 VIX "현물"과 완전히 동일하게 움직이지 않고 괴리가 발생할 수 있습니다(선물 롤오버 효과 등).
+def get_vix_proxy(api_key):
     try:
-        j = twelvedata_get({"symbol": "VIX", "apikey": api_key}).json()
-        print(f"[DEBUG] VIX 응답: {j}")
+        j = twelvedata_get({"symbol": "VIXY", "apikey": api_key}).json()
+        print(f"[DEBUG] VIXY 응답: {j}")
 
         if j.get('status') == 'error':
             raise RuntimeError(f"TwelveData Error: {j.get('message', '알 수 없는 오류')}")
@@ -340,16 +310,11 @@ def get_vix_index(api_key):
         pct = float(j["percent_change"])
         icon = "▲" if c > 0 else "▼" if c < 0 else "-"
 
-        if p < 15: classification = "낮음 (시장 안정)"
-        elif p < 20: classification = "보통 (주의)"
-        elif p < 30: classification = "높음 (리스크 경고)"
-        else: classification = "매우 높음 (공포 심리)"
-
-        return f"<b>🔥 VIX 지수(공포 지수):</b> {p:.2f} {icon}{abs(c):.2f} ({pct:+.2f}%) - {classification}"
+        return f"<b>🔥 VIX 근사 ETF(VIXY):</b> ${p:.2f} {icon}{abs(c):.2f} ({pct:+.2f}%) — 상승할수록 변동성 확대 신호"
 
     except Exception as e:
-        print(f"[ERROR] VIX 지수 수집 실패: {e}")
-        return "<b>🔥 VIX 지수:</b> 정보 없음"
+        print(f"[ERROR] VIX 근사 ETF 수집 실패: {e}")
+        return "<b>🔥 VIX 근사 ETF(VIXY):</b> 정보 없음"
 
 
 def get_sector_etf_changes(api_key):
@@ -360,16 +325,14 @@ def get_sector_etf_changes(api_key):
     return "\n".join(out)
 
 
-# ✅ 신규 추가 (무료, TwelveData 무료플랜의 기존 키 재사용) ──────────
+# ✅ 수정: SOX(필라델피아 반도체지수)도 404 확인 → 반도체지수 추종 ETF(SOXX)로 대체.
 def get_risk_indicators_twelve(api_key):
     """
-    금(GLD ETF로 대체) / 필라델피아 반도체지수(SOX) — 리스크오프·반도체 사이클 선행지표.
-    ⚠️ 심볼(GLD, SOX)이 TwelveData 무료플랜에서 정상 조회되는지는 실행 로그의 [DEBUG]로 확인 필요.
-       실패해도 "정보 없음"으로만 표시되고 나머지 메시지 전송에는 영향 없습니다.
+    금(GLD ETF로 대체) / 반도체 ETF(SOXX, SOX지수 추종) — 리스크오프·반도체 사이클 선행지표.
     """
     out = []
-    out.append(twelvedata_quote_line("금(GLD ETF)", "GLD", api_key))
-    out.append(twelvedata_quote_line("필라델피아 반도체지수(SOX)", "SOX", api_key, unit_fmt="{:,.2f}"))
+    out.append(twelvedata_quote_line("금(GLD ETF)", "GLD", api_key, unit_fmt="${:.2f}"))
+    out.append(twelvedata_quote_line("반도체 ETF (SOXX, SOX지수 추종)", "SOXX", api_key, unit_fmt="${:.2f}"))
     return "\n".join(out)
 
 
@@ -459,26 +422,25 @@ def build_message():
         f"{get_cpi_index(FRED_API_KEY)}\n"
     )
 
-    # ✅ 신규: 리스크 관리용 채권/신용 지표 (전부 무료, FRED)
     risk_bond_data = (
         f"<b>⚠️ 리스크 지표 (채권·신용시장)</b>:\n"
         f"{get_yield_curve_spread(FRED_API_KEY)}\n"
         f"{get_high_yield_spread(FRED_API_KEY)}\n"
     )
 
-    korean_indices = get_korean_indices_twelve(TWELVEDATA_API)
+    korea_proxy = get_korea_proxy_twelve(TWELVEDATA_API)
 
     return (
         f"<b>📈 [{today}] 뉴스 요약 + 시장 지표</b>\n\n"
-        f"<b>📊 미국 주요 지수</b>:\n{get_us_indices()}\n\n"
-        f"<b>🇰🇷 한국 주요 지수</b>:\n{korean_indices}\n\n"
+        f"<b>📊 미국 주요 지수 (ETF 프록시)</b>:\n{get_us_index_proxies(TWELVEDATA_API)}\n\n"
+        f"<b>🇰🇷 한국 시장 (ETF 프록시)</b>:\n{korea_proxy}\n\n"
         f"<b>💱 환율</b>:\n{get_exchange_rates()}\n\n"
         f"{fred_data}\n"
         f"{risk_bond_data}\n"
         f"<b>🌐 주요 암호화폐 시세</b>:\n{get_crypto_prices()}\n\n"
         f"<b>📉 미국 섹터별 지수 변화</b>:\n{get_sector_etf_changes(TWELVEDATA_API)}\n\n"
         f"<b>🛡️ 리스크오프 지표 (금 · 반도체)</b>:\n{get_risk_indicators_twelve(TWELVEDATA_API)}\n\n"
-        f"{get_vix_index(TWELVEDATA_API)}\n"
+        f"{get_vix_proxy(TWELVEDATA_API)}\n"
         f"{get_fear_greed_index()}\n\n"
         f"<b>📌 주요 종목 시세</b>:\n{get_stock_prices(TWELVEDATA_API)}"
     )
