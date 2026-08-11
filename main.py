@@ -355,7 +355,7 @@ def get_vix_proxy(api_key):
 
         line = f"<b>🔥 VIX 근사 ETF(VIXY):</b> ${p:.2f} {icon}{abs(c):.2f} ({pct:+.2f}%) - {classification}"
         note = ("※ 시장 변동성 기대치. 15 미만 낮음(안정) · 15~20 보통 · 20~30 높음(경계) · "
-                "30 이상 매우 높음(공포))
+                "30 이상 매우 높음(공포)")
         return f"{line}\n{note}"
 
     except Exception as e:
