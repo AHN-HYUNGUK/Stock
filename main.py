@@ -92,7 +92,6 @@ CHAT_IDS = [
 
 
 # ── TwelveData 전용 호출 래퍼 (분당 8회 제한 대응) ──────────────────────
-# 무료 플랜은 "분당 8 크레딧" 제한이 있어, 7회 호출마다 61초씩 대기시켜 분산합니다.
 _twelvedata_call_count = 0
 
 def twelvedata_get(params, timeout=20):
@@ -110,10 +109,7 @@ def twelvedata_get(params, timeout=20):
 
 
 def twelvedata_quote_line(name, symbol, api_key, prefix="•", unit_fmt="{:.2f}"):
-    """TwelveData quote 하나를 가져와 한 줄짜리 문자열로 변환하는 공용 함수.
-    ✅ 지수(KS11, VIX, SOX 등)는 무료 플랜에서 404가 나는 것으로 확인되어,
-       이제부터는 해당 지수를 추종하는 '미국 상장 ETF/주식' 심볼만 사용합니다.
-    """
+    """TwelveData quote 하나를 가져와 한 줄짜리 문자열로 변환하는 공용 함수."""
     try:
         j = twelvedata_get({"symbol": symbol, "apikey": api_key}).json()
         print(f"[DEBUG] {name}({symbol}) 응답: {j}")
@@ -132,11 +128,6 @@ def twelvedata_quote_line(name, symbol, api_key, prefix="•", unit_fmt="{:.2f}"
 
 # ── 지표/시세 수집 ────────────────────────────────────────
 
-# ✅ 수정: investing.com 스크래핑은 403으로 완전히 차단된 것이 로그로 확인되어 제거.
-#    대신 이미 안정적으로 작동이 검증된 TwelveData ETF 시세로 대체합니다.
-#    ⚠️ ETF 가격은 지수 "포인트"와 스케일이 다릅니다(예: SPY ≈ S&P500의 1/10 수준).
-#       등락률(%)은 실제 지수와 거의 동일하게 움직이므로 추세 파악용으로는 유효하지만,
-#       "가격" 자체를 지수 포인트로 착각하지 않도록 이름에 ETF임을 명시합니다.
 def get_us_index_proxies(api_key):
     proxies = {
         "다우존스 추종 ETF (DIA)": "DIA",
@@ -149,9 +140,6 @@ def get_us_index_proxies(api_key):
     return "\n".join(out)
 
 
-# ✅ 수정: 코스피(KS11) 심볼은 무료 플랜에서 404 확인됨.
-#    한국 대형주 비중이 큰 미국 상장 ETF(EWY)로 대체 — 코스피 "그 자체"는 아니고 근사치입니다.
-#    코스닥은 마땅한 미국 상장 추종 ETF가 없어 이번 버전에서는 제외했습니다.
 def get_korea_proxy_twelve(api_key):
     return twelvedata_quote_line(
         "한국 대형주 ETF (EWY, 코스피 근사치)", "EWY", api_key, unit_fmt="${:.2f}"
@@ -256,10 +244,11 @@ def get_10y_treasury_yield(api_key):
     return get_fred_data(api_key, "DGS10", "미국 10년물 국채금리", unit="%")
 
 
+# ── 리스크 지표: 장단기 금리차 (설명 문구 + 역전 표기) ──────────────────
 def get_yield_curve_spread(api_key):
     """
     장단기 금리차 10Y-2Y 스프레드 (T10Y2Y).
-    마이너스(역전)로 갈수록 경기침체 경고 신호로 해석되는 대표 지표.
+    마이너스(역전)일 때 "역전"으로 표기.
     """
     try:
         url = "https://api.stlouisfed.org/fred/series/observations"
@@ -277,8 +266,12 @@ def get_yield_curve_spread(api_key):
 
         if value_str and value_str != ".":
             value = float(value_str)
-            warn = " ⚠️ 역전(경기침체 경고)" if value < 0 else ""
-            return f"• 장단기 금리차(10Y-2Y): {value:+.2f}%p (기준일: {date}){warn}"
+            status = " ⚠️ 역전" if value < 0 else ""
+            line = f"• 장단기 금리차(10Y-2Y): {value:+.2f}%p (기준일: {date}){status}"
+            note = ("※ 10년물 국채금리 - 2년물 국채금리. 마이너스(역전)면 시장이 향후 경기 둔화를 "
+                    "경계한다는 신호로 흔히 해석됩니다. 다만 역전 이후 실제 침체까지는 통상 수개월~2년의 "
+                    "시차가 있어 왔고, 이 지표 하나로 시점을 예측할 수는 없습니다.")
+            return f"{line}\n{note}"
         else:
             return "• 장단기 금리차(10Y-2Y): 데이터 없음"
     except Exception as e:
@@ -286,18 +279,70 @@ def get_yield_curve_spread(api_key):
         return "• 장단기 금리차(10Y-2Y): API 연결 오류"
 
 
+# ── 리스크 지표: 하이일드 신용스프레드 (구간 표기 + 설명 문구) ──────────
+def _classify_high_yield_spread(value_pct):
+    if value_pct < 3:
+        return "매우 낮음"
+    elif value_pct < 6:
+        return "정상 범주"
+    elif value_pct < 8:
+        return "확대 국면(주의)"
+    else:
+        return "위기 수준"
+
+
 def get_high_yield_spread(api_key):
     """
     하이일드 신용스프레드 (BAMLH0A0HYM2, ICE BofA US High Yield OAS).
-    신용시장 위험 선호도 지표 — 스프레드 확대는 위험회피 신호.
+    3%p 미만 매우 낮음 · 3~6%p 정상 범주 · 6~8%p 확대 국면(주의) · 8%p 이상 위기 수준
     """
-    return get_fred_data(api_key, "BAMLH0A0HYM2", "하이일드 신용스프레드", unit="%")
+    try:
+        url = "https://api.stlouisfed.org/fred/series/observations"
+        params = {
+            "series_id": "BAMLH0A0HYM2",
+            "api_key": api_key,
+            "file_type": "json",
+            "sort_order": "desc",
+            "limit": 1
+        }
+        j = http_get(url, params=params).json()
+        latest = j.get("observations", [{}])[0]
+        value_str = latest.get("value")
+        date = latest.get("date", "최신")
+
+        if value_str and value_str != ".":
+            value = float(value_str)
+            classification = _classify_high_yield_spread(value)
+            line = f"• 하이일드 신용스프레드: {value:+.2f}% (기준일: {date}) - {classification}"
+            note = ("※ 신용도 낮은 회사채(정크본드)와 국채 간 금리 차이. 3%p 미만 매우 낮음 · "
+                    "3~6%p 평상시 정상 범주 · 6~8%p 확대 국면(주의) · 8%p 이상 위기 수준 "
+                    "(2008년 금융위기·2020년 코로나 폭락 때 8%p를 크게 상회). "
+                    "공식 기준이 아닌 시장에서 통용되는 대략적 참고치입니다.")
+            return f"{line}\n{note}"
+        else:
+            return "• 하이일드 신용스프레드: 데이터 없음"
+    except Exception as e:
+        print(f"[ERROR] 하이일드 신용스프레드 수집 실패: {e}")
+        return "• 하이일드 신용스프레드: API 연결 오류"
 
 
-# ✅ 수정: VIX 지수 자체는 이론값이라 원래 매매·조회가 불가능한 경우가 많고,
-#    TwelveData 무료 플랜에서도 404가 확인됨. VIX 선물을 추종하는 ETF(VIXY)로 대체.
-#    ⚠️ VIXY는 VIX "현물"과 완전히 동일하게 움직이지 않고 괴리가 발생할 수 있습니다(선물 롤오버 효과 등).
+# ── VIX 근사 ETF (구간 표기 + 설명 문구) ────────────────────────────
+def _classify_vix(price):
+    if price < 15:
+        return "낮음(안정)"
+    elif price < 20:
+        return "보통"
+    elif price < 30:
+        return "높음(경계)"
+    else:
+        return "매우 높음(공포)"
+
+
 def get_vix_proxy(api_key):
+    """
+    VIX 지수 자체는 무료 플랜에서 404가 확인되어, VIX 선물 추종 ETF(VIXY)로 대체.
+    15 미만 낮음(안정) · 15~20 보통 · 20~30 높음(경계) · 30 이상 매우 높음
+    """
     try:
         j = twelvedata_get({"symbol": "VIXY", "apikey": api_key}).json()
         print(f"[DEBUG] VIXY 응답: {j}")
@@ -309,8 +354,13 @@ def get_vix_proxy(api_key):
         c = float(j["change"])
         pct = float(j["percent_change"])
         icon = "▲" if c > 0 else "▼" if c < 0 else "-"
+        classification = _classify_vix(p)
 
-        return f"<b>🔥 VIX 근사 ETF(VIXY):</b> ${p:.2f} {icon}{abs(c):.2f} ({pct:+.2f}%) — 상승할수록 변동성 확대 신호"
+        line = f"<b>🔥 VIX 근사 ETF(VIXY):</b> ${p:.2f} {icon}{abs(c):.2f} ({pct:+.2f}%) - {classification}"
+        note = ("※ 시장 변동성 기대치. 15 미만 낮음(안정) · 15~20 보통 · 20~30 높음(경계) · "
+                "30 이상 매우 높음(공포). VIXY는 VIX 선물을 담는 ETF라 장기적으로 VIX 지수와 "
+                "정확히 같은 스케일로 움직이지 않을 수 있습니다.")
+        return f"{line}\n{note}"
 
     except Exception as e:
         print(f"[ERROR] VIX 근사 ETF 수집 실패: {e}")
@@ -325,7 +375,6 @@ def get_sector_etf_changes(api_key):
     return "\n".join(out)
 
 
-# ✅ 수정: SOX(필라델피아 반도체지수)도 404 확인 → 반도체지수 추종 ETF(SOXX)로 대체.
 def get_risk_indicators_twelve(api_key):
     """
     금(GLD ETF로 대체) / 반도체 ETF(SOXX, SOX지수 추종) — 리스크오프·반도체 사이클 선행지표.
@@ -424,7 +473,7 @@ def build_message():
 
     risk_bond_data = (
         f"<b>⚠️ 리스크 지표 (채권·신용시장)</b>:\n"
-        f"{get_yield_curve_spread(FRED_API_KEY)}\n"
+        f"{get_yield_curve_spread(FRED_API_KEY)}\n\n"
         f"{get_high_yield_spread(FRED_API_KEY)}\n"
     )
 
@@ -440,7 +489,7 @@ def build_message():
         f"<b>🌐 주요 암호화폐 시세</b>:\n{get_crypto_prices()}\n\n"
         f"<b>📉 미국 섹터별 지수 변화</b>:\n{get_sector_etf_changes(TWELVEDATA_API)}\n\n"
         f"<b>🛡️ 리스크오프 지표 (금 · 반도체)</b>:\n{get_risk_indicators_twelve(TWELVEDATA_API)}\n\n"
-        f"{get_vix_proxy(TWELVEDATA_API)}\n"
+        f"{get_vix_proxy(TWELVEDATA_API)}\n\n"
         f"{get_fear_greed_index()}\n\n"
         f"<b>📌 주요 종목 시세</b>:\n{get_stock_prices(TWELVEDATA_API)}"
     )
