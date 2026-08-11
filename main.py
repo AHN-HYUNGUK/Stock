@@ -52,9 +52,8 @@ def http_get(url, *, params=None, timeout=20):
 def http_post(url, data={}):
     """HTTP POST 요청을 보냅니다. (텔레그램 오류 무시 로직 + 타임아웃 추가)"""
     try:
-        r = requests.post(url, data=data, timeout=20)  # ✅ 수정: 타임아웃 추가 (무한 대기 방지)
+        r = requests.post(url, data=data, timeout=20)
 
-        # 텔레그램 API 오류 코드 (400)만 특별히 처리합니다.
         if "api.telegram.org" in url and r.status_code == 400:
             print(f"[WARN] 텔레그램 400 오류 발생: {r.status_code}")
             try:
@@ -76,26 +75,26 @@ load_dotenv = None
 
 
 # ── 환경 변수 ─────────────────────────────────────────────
+# ✅ 이번 업데이트에서는 전부 "기존에 이미 발급받은 무료 API 키"만 재사용합니다.
+#    (FRED, TwelveData, exchangerate-api, CoinGecko 모두 무료 플랜 기준)
 TOKEN             = os.environ['TOKEN']
 CHAT_IDS          = os.environ['CHAT_IDS'].split(",")
 EXCHANGE_KEY      = os.environ['EXCHANGEAPI']
 TWELVEDATA_API    = os.environ["TWELVEDATA_API"]
 FRED_API_KEY      = os.environ["FRED_API_KEY"]
-ALPHAVANTAGE_KEY  = os.environ.get("ALPHAVANTAGE_KEY", "")  # ✅ 수정: 사용 안 하므로 필수값에서 제외
+ALPHAVANTAGE_KEY  = os.environ.get("ALPHAVANTAGE_KEY", "")
 TELEGRAM_URL      = f"https://api.telegram.org/bot{TOKEN}/sendMessage"
 today             = datetime.datetime.now().strftime('%Y년 %m월 %d일')
 
 CHAT_IDS = [
     _id.strip()
     for _id in os.environ['CHAT_IDS'].split(",")
-    if _id.strip()  # 공백 제거 후 내용이 있는 ID만 사용
+    if _id.strip()
 ]
 
 
 # ── TwelveData 전용 호출 래퍼 (분당 8회 제한 대응) ──────────────────────
-# ✅ 수정: 무료 플랜은 "분당 8 크레딧" 제한이 있음.
-#    이 스크립트는 한 번 실행될 때 TwelveData를 15회 가까이 호출하므로,
-#    7회 호출마다 60초 이상 쉬어서 분당 한도를 넘기지 않도록 함.
+# 무료 플랜은 "분당 8 크레딧" 제한이 있어, 7회 호출마다 61초씩 대기시켜 분산합니다.
 _twelvedata_call_count = 0
 
 def twelvedata_get(params, timeout=20):
@@ -107,15 +106,32 @@ def twelvedata_get(params, timeout=20):
               f"(누적 호출 {_twelvedata_call_count - 1}회)...")
         time.sleep(61)
     else:
-        time.sleep(1.5)  # 호출 사이 최소 간격
+        time.sleep(1.5)
 
     return http_get("https://api.twelvedata.com/quote", params=params, timeout=timeout)
+
+
+def twelvedata_quote_line(name, symbol, api_key, prefix="•", unit_fmt="{:.2f}"):
+    """TwelveData quote 하나를 가져와 한 줄짜리 문자열로 변환하는 공용 함수."""
+    try:
+        j = twelvedata_get({"symbol": symbol, "apikey": api_key}).json()
+        print(f"[DEBUG] {name}({symbol}) 응답: {j}")
+
+        if j.get('status') == 'error':
+            raise RuntimeError(f"TwelveData Error: {j.get('message', '알 수 없는 오류')}")
+
+        p = float(j["close"]); c = float(j["change"]); pct = float(j["percent_change"])
+        icon = "▲" if c > 0 else "▼" if c < 0 else "-"
+        p_str = unit_fmt.format(p)
+        return f"{prefix} {name}: {p_str} {icon}{abs(c):.2f} ({pct:+.2f}%)"
+    except Exception as e:
+        print(f"[ERROR] {name}({symbol}) 수집 실패: {e}")
+        return f"{prefix} {name}: 정보 없음"
 
 
 # ── 지표/시세 수집 ────────────────────────────────────────
 
 def get_us_indices():
-    # Investing.com 스크래핑 로직 유지
     url = "https://www.investing.com/indices/major-indices"
     try:
         res = http_get(url)
@@ -123,7 +139,7 @@ def get_us_indices():
         rows = soup.select("table tbody tr")[:3]
         out = []
         for r in rows:
-            name = "알 수 없음"  # ✅ 수정: NameError 방지용 기본값
+            name = "알 수 없음"
             try:
                 name = r.select_one("td:nth-child(2)").text.strip()
                 now  = float(r.select_one("td:nth-child(3)").text.replace(",", ""))
@@ -139,7 +155,6 @@ def get_us_indices():
         return "\n".join(out)
     except Exception as e:
         print(f"[ERROR] 미국 지수 수집 실패: {e}")
-        # 디버그: 응답 일부를 로그로 남겨 원인 파악에 활용
         try:
             print(f"[DEBUG] investing.com 응답 앞부분: {res.text[:300]}")
         except Exception:
@@ -148,15 +163,13 @@ def get_us_indices():
 
 
 def get_korean_indices_twelve(api_key):
-    """TwelveData API를 사용하여 코스피와 코스닥 지수를 가져옵니다."""
-    # ✅ 수정: TwelveData 공식 문서 기준 심볼은 'KS11' / 'KQ11' (.KR 접미사 없음)
     symbols = {"코스피": "KS11", "코스닥": "KQ11"}
     out = []
 
     for name, sym in symbols.items():
         try:
             j = twelvedata_get({"symbol": sym, "apikey": api_key}).json()
-            print(f"[DEBUG] {name}({sym}) 응답: {j}")  # 디버그: 실패 시 원인 확인용
+            print(f"[DEBUG] {name}({sym}) 응답: {j}")
 
             if j.get('status') == 'error':
                 raise RuntimeError(f"TwelveData Error: {j.get('message', '알 수 없는 오류')}")
@@ -177,7 +190,6 @@ def get_korean_indices_twelve(api_key):
 
 
 def get_crypto_prices():
-    """CoinGecko API를 사용하여 BTC/ETH 시세를 가져옵니다."""
     url = "https://api.coingecko.com/api/v3/simple/price"
     params = {
         "ids": "bitcoin,ethereum",
@@ -211,14 +223,13 @@ def get_crypto_prices():
 
 
 def get_exchange_rates():
-    """JPY 환율을 100엔당 KRW로 계산합니다."""
+    """JPY 환율을 100엔당 KRW로 계산."""
     try:
         j = http_get(f"https://v6.exchangerate-api.com/v6/{EXCHANGE_KEY}/latest/USD").json()
         rates = j.get("conversion_rates", {})
 
-        krw_rate = rates.get('KRW', 0)  # USD당 KRW
-        jpy_rate = rates.get('JPY', 0)  # USD당 JPY
-
+        krw_rate = rates.get('KRW', 0)
+        jpy_rate = rates.get('JPY', 0)
         jpy_to_krw_100 = (krw_rate / jpy_rate) * 100 if krw_rate and jpy_rate else 0
 
         return (
@@ -234,7 +245,7 @@ def get_exchange_rates():
 
 
 def get_fred_data(api_key, series_id, name, unit=""):
-    """FRED API에서 단일 시계열 데이터를 가져오는 범용 함수."""
+    """FRED API에서 단일 시계열 데이터를 가져오는 범용 함수. (완전 무료, 사용량 사실상 무제한)"""
     try:
         url = "https://api.stlouisfed.org/fred/series/observations"
         params = {
@@ -271,12 +282,55 @@ def get_cpi_index(api_key):
     return get_fred_data(api_key, "CPIAUCSL", "미국 CPI (지수)", unit="")
 
 
-def get_vix_index(api_key):
-    """TwelveData API를 사용하여 VIX 지수 (공포 지수)를 가져옵니다."""
+# ✅ 신규 추가 (무료, FRED) ────────────────────────────────
+def get_10y_treasury_yield(api_key):
+    """미국 10년물 국채 명목금리 (DGS10)"""
+    return get_fred_data(api_key, "DGS10", "미국 10년물 국채금리", unit="%")
+
+
+def get_yield_curve_spread(api_key):
+    """
+    장단기 금리차 10Y-2Y 스프레드 (T10Y2Y).
+    마이너스(역전)로 갈수록 경기침체 경고 신호로 해석되는 대표 지표.
+    """
     try:
-        # ✅ 수정: '^VIX' 대신 'VIX'로 우선 시도 (실패 시 로그로 원인 확인 가능)
+        url = "https://api.stlouisfed.org/fred/series/observations"
+        params = {
+            "series_id": "T10Y2Y",
+            "api_key": api_key,
+            "file_type": "json",
+            "sort_order": "desc",
+            "limit": 1
+        }
+        j = http_get(url, params=params).json()
+        latest = j.get("observations", [{}])[0]
+        value_str = latest.get("value")
+        date = latest.get("date", "최신")
+
+        if value_str and value_str != ".":
+            value = float(value_str)
+            warn = " ⚠️ 역전(경기침체 경고)" if value < 0 else ""
+            return f"• 장단기 금리차(10Y-2Y): {value:+.2f}%p (기준일: {date}){warn}"
+        else:
+            return "• 장단기 금리차(10Y-2Y): 데이터 없음"
+    except Exception as e:
+        print(f"[ERROR] 장단기 금리차 수집 실패: {e}")
+        return "• 장단기 금리차(10Y-2Y): API 연결 오류"
+
+
+def get_high_yield_spread(api_key):
+    """
+    하이일드 신용스프레드 (BAMLH0A0HYM2, ICE BofA US High Yield OAS).
+    신용시장 위험 선호도 지표 — 스프레드 확대는 위험회피 신호.
+    ⚠️ 이 시리즈 ID는 실행 로그에서 실제 응답을 한 번 확인해보시길 권장합니다.
+    """
+    return get_fred_data(api_key, "BAMLH0A0HYM2", "하이일드 신용스프레드", unit="%")
+
+
+def get_vix_index(api_key):
+    try:
         j = twelvedata_get({"symbol": "VIX", "apikey": api_key}).json()
-        print(f"[DEBUG] VIX 응답: {j}")  # 디버그: 실패 시 원인 확인용
+        print(f"[DEBUG] VIX 응답: {j}")
 
         if j.get('status') == 'error':
             raise RuntimeError(f"TwelveData Error: {j.get('message', '알 수 없는 오류')}")
@@ -302,19 +356,20 @@ def get_sector_etf_changes(api_key):
     etfs = {"💻 기술": "XLK", "🏦 금융": "XLF", "💊 헬스케어": "XLV", "⚡ 에너지": "XLE", "🛒 소비재": "XLY"}
     out = []
     for name, sym in etfs.items():
-        try:
-            j = twelvedata_get({"symbol": sym, "apikey": api_key}).json()
-            if j.get('status') == 'error':
-                print(f"[ERROR] {name}({sym}) TwelveData 오류: {j.get('message')}")
-                out.append(f"{name}: 정보 없음")
-                continue
+        out.append(twelvedata_quote_line(name, sym, api_key))
+    return "\n".join(out)
 
-            p = float(j["close"]); c = float(j["change"]); pct = float(j["percent_change"])
-            icon = "▲" if c > 0 else "▼" if c < 0 else "-"
-            out.append(f"{name}: {p:.2f} {icon}{abs(c):.2f} ({pct:+.2f}%)")
-        except Exception as e:
-            print(f"[ERROR] {name}({sym}) 수집 실패: {e}")
-            out.append(f"{name}: 정보 없음")
+
+# ✅ 신규 추가 (무료, TwelveData 무료플랜의 기존 키 재사용) ──────────
+def get_risk_indicators_twelve(api_key):
+    """
+    금(GLD ETF로 대체) / 필라델피아 반도체지수(SOX) — 리스크오프·반도체 사이클 선행지표.
+    ⚠️ 심볼(GLD, SOX)이 TwelveData 무료플랜에서 정상 조회되는지는 실행 로그의 [DEBUG]로 확인 필요.
+       실패해도 "정보 없음"으로만 표시되고 나머지 메시지 전송에는 영향 없습니다.
+    """
+    out = []
+    out.append(twelvedata_quote_line("금(GLD ETF)", "GLD", api_key))
+    out.append(twelvedata_quote_line("필라델피아 반도체지수(SOX)", "SOX", api_key, unit_fmt="{:,.2f}"))
     return "\n".join(out)
 
 
@@ -330,19 +385,7 @@ def get_stock_prices(api_key):
     }
     out = []
     for name, sym in symbols.items():
-        try:
-            j = twelvedata_get({"symbol": sym, "apikey": api_key}).json()
-            if j.get('status') == 'error':
-                print(f"[ERROR] {name}({sym}) TwelveData 오류: {j.get('message')}")
-                out.append(f"• {name}: 정보 없음")
-                continue
-
-            p = float(j["close"]); c = float(j["change"]); pct = float(j["percent_change"])
-            icon = "▲" if c > 0 else "▼" if c < 0 else "-"
-            out.append(f"• {name}: ${p:.2f} {icon}{abs(c):.2f} ({pct:+.2f}%)")
-        except Exception as e:
-            print(f"[ERROR] {name}({sym}) 수집 실패: {e}")
-            out.append(f"• {name}: 정보 없음")
+        out.append(twelvedata_quote_line(name, sym, api_key, unit_fmt="${:.2f}"))
     return "\n".join(out)
 
 
@@ -358,7 +401,6 @@ def get_fear_greed_index():
 
 
 def fetch_us_market_news_titles():
-    # 뉴스 스크래핑 로직 유지 (안정성 문제로 생략)
     try:
         html = http_get("https://finance.yahoo.com/").text
         soup = BeautifulSoup(html, "html.parser")
@@ -382,7 +424,7 @@ def fetch_media_press_ranking_playwright(press_id="215", count=10):
             page = browser.new_page()
             page.goto(url)
             page.wait_for_load_state("networkidle")
-            page.wait_for_timeout(2000)  # 로딩 대기
+            page.wait_for_timeout(2000)
 
             try:
                 page.wait_for_selector(f"a[href*='/article/{press_id}/']", timeout=10000)
@@ -413,7 +455,15 @@ def build_message():
     fred_data = (
         f"<b>🇺🇸 주요 경제 지표 (FRED)</b>:\n"
         f"{get_tips_yield(FRED_API_KEY)}\n"
+        f"{get_10y_treasury_yield(FRED_API_KEY)}\n"
         f"{get_cpi_index(FRED_API_KEY)}\n"
+    )
+
+    # ✅ 신규: 리스크 관리용 채권/신용 지표 (전부 무료, FRED)
+    risk_bond_data = (
+        f"<b>⚠️ 리스크 지표 (채권·신용시장)</b>:\n"
+        f"{get_yield_curve_spread(FRED_API_KEY)}\n"
+        f"{get_high_yield_spread(FRED_API_KEY)}\n"
     )
 
     korean_indices = get_korean_indices_twelve(TWELVEDATA_API)
@@ -424,8 +474,10 @@ def build_message():
         f"<b>🇰🇷 한국 주요 지수</b>:\n{korean_indices}\n\n"
         f"<b>💱 환율</b>:\n{get_exchange_rates()}\n\n"
         f"{fred_data}\n"
+        f"{risk_bond_data}\n"
         f"<b>🌐 주요 암호화폐 시세</b>:\n{get_crypto_prices()}\n\n"
         f"<b>📉 미국 섹터별 지수 변화</b>:\n{get_sector_etf_changes(TWELVEDATA_API)}\n\n"
+        f"<b>🛡️ 리스크오프 지표 (금 · 반도체)</b>:\n{get_risk_indicators_twelve(TWELVEDATA_API)}\n\n"
         f"{get_vix_index(TWELVEDATA_API)}\n"
         f"{get_fear_greed_index()}\n\n"
         f"<b>📌 주요 종목 시세</b>:\n{get_stock_prices(TWELVEDATA_API)}"
@@ -447,7 +499,6 @@ def send_to_telegram():
 
 
 # ── 실행 ──────────────────────────────────────────────────
-# ✅ 수정: 스케줄은 main.yml(GitHub Actions cron)에서 관리하므로
-#    내부 schedule 루프는 제거하고 실행 시 1회만 동작하도록 유지합니다.
+# 스케줄은 main.yml(GitHub Actions cron)에서 관리하므로 1회만 실행합니다.
 if __name__ == "__main__":
     send_to_telegram()
