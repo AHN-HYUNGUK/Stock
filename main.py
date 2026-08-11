@@ -389,7 +389,9 @@ def get_stock_prices(api_key):
         "Microsoft (MSFT)": "MSFT",
         "Amazon (AMZN)": "AMZN",
         "Meta (META)": "META",
-        "Berkshire Hathaway (BRK.B)": "BRK.B"
+        "Berkshire Hathaway (BRK.B)": "BRK.B",
+        "Palantir (PLTR)": "PLTR",
+        "SpaceX (SPCX)": "SPCX"
     }
     out = []
     for name, sym in symbols.items():
