@@ -268,9 +268,8 @@ def get_yield_curve_spread(api_key):
             value = float(value_str)
             status = " ⚠️ 역전" if value < 0 else ""
             line = f"• 장단기 금리차(10Y-2Y): {value:+.2f}%p (기준일: {date}){status}"
-            note = ("※ 10년물 국채금리 - 2년물 국채금리. 마이너스(역전)면 시장이 향후 경기 둔화를 "
-                    "경계한다는 신호로 흔히 해석됩니다. 다만 역전 이후 실제 침체까지는 통상 수개월~2년의 "
-                    "시차가 있어 왔고, 이 지표 하나로 시점을 예측할 수는 없습니다.")
+            note = ("※ 10년물 국채금리 - 2년물 국채금리. 마이너스면 시장이 향후 경기 둔화 예상 "
+                    )
             return f"{line}\n{note}"
         else:
             return "• 장단기 금리차(10Y-2Y): 데이터 없음"
@@ -315,9 +314,7 @@ def get_high_yield_spread(api_key):
             classification = _classify_high_yield_spread(value)
             line = f"• 하이일드 신용스프레드: {value:+.2f}% (기준일: {date}) - {classification}"
             note = ("※ 신용도 낮은 회사채(정크본드)와 국채 간 금리 차이. 3%p 미만 매우 낮음 · "
-                    "3~6%p 평상시 정상 범주 · 6~8%p 확대 국면(주의) · 8%p 이상 위기 수준 "
-                    "(2008년 금융위기·2020년 코로나 폭락 때 8%p를 크게 상회). "
-                    "공식 기준이 아닌 시장에서 통용되는 대략적 참고치입니다.")
+                    "3~6%p 평상시 정상 범주 · 6~8%p 확대 국면(주의) · 8%p 이상 위기 수준 ")
             return f"{line}\n{note}"
         else:
             return "• 하이일드 신용스프레드: 데이터 없음"
@@ -358,8 +355,7 @@ def get_vix_proxy(api_key):
 
         line = f"<b>🔥 VIX 근사 ETF(VIXY):</b> ${p:.2f} {icon}{abs(c):.2f} ({pct:+.2f}%) - {classification}"
         note = ("※ 시장 변동성 기대치. 15 미만 낮음(안정) · 15~20 보통 · 20~30 높음(경계) · "
-                "30 이상 매우 높음(공포). VIXY는 VIX 선물을 담는 ETF라 장기적으로 VIX 지수와 "
-                "정확히 같은 스케일로 움직이지 않을 수 있습니다.")
+                "30 이상 매우 높음(공포))
         return f"{line}\n{note}"
 
     except Exception as e:
