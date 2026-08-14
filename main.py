@@ -392,7 +392,7 @@ def get_stock_prices(api_key):
         "Berkshire Hathaway (BRK.B)": "BRK.B",
         "Palantir (PLTR)": "PLTR",
         "SpaceX (SPCX)": "SPCX",
-        "SK 하이닉스 (SKHY)": "SKHY"
+        "SK 하이닉스 ADR (SKHY)": "SKHY"
     }
     out = []
     for name, sym in symbols.items():
