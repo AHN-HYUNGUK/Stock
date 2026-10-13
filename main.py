@@ -108,10 +108,13 @@ def twelvedata_get(params, timeout=20):
     return http_get("https://api.twelvedata.com/quote", params=params, timeout=timeout)
 
 
-def twelvedata_quote_line(name, symbol, api_key, prefix="•", unit_fmt="{:.2f}"):
+def twelvedata_quote_line(name, symbol, api_key, prefix="•", unit_fmt="{:.2f}", extra_params=None):
     """TwelveData quote 하나를 가져와 한 줄짜리 문자열로 변환하는 공용 함수."""
     try:
-        j = twelvedata_get({"symbol": symbol, "apikey": api_key}).json()
+        params = {"symbol": symbol, "apikey": api_key}
+        if extra_params:
+            params.update(extra_params)
+        j = twelvedata_get(params).json()
         print(f"[DEBUG] {name}({symbol}) 응답: {j}")
 
         if j.get('status') == 'error':
@@ -268,8 +271,9 @@ def get_yield_curve_spread(api_key):
             value = float(value_str)
             status = " ⚠️ 역전" if value < 0 else ""
             line = f"• 장단기 금리차(10Y-2Y): {value:+.2f}%p (기준일: {date}){status}"
-            note = ("※ 10년물 국채금리 - 2년물 국채금리. 마이너스면 시장이 향후 경기 둔화 예상 "
-                    )
+            note = ("※ 10년물 국채금리 - 2년물 국채금리. 마이너스(역전)면 시장이 향후 경기 둔화를 "
+                    "경계한다는 신호로 흔히 해석됩니다. 다만 역전 이후 실제 침체까지는 통상 수개월~2년의 "
+                    "시차가 있어 왔고, 이 지표 하나로 시점을 예측할 수는 없습니다.")
             return f"{line}\n{note}"
         else:
             return "• 장단기 금리차(10Y-2Y): 데이터 없음"
@@ -314,7 +318,9 @@ def get_high_yield_spread(api_key):
             classification = _classify_high_yield_spread(value)
             line = f"• 하이일드 신용스프레드: {value:+.2f}% (기준일: {date}) - {classification}"
             note = ("※ 신용도 낮은 회사채(정크본드)와 국채 간 금리 차이. 3%p 미만 매우 낮음 · "
-                    "3~6%p 평상시 정상 범주 · 6~8%p 확대 국면(주의) · 8%p 이상 위기 수준 ")
+                    "3~6%p 평상시 정상 범주 · 6~8%p 확대 국면(주의) · 8%p 이상 위기 수준 "
+                    "(2008년 금융위기·2020년 코로나 폭락 때 8%p를 크게 상회). "
+                    "공식 기준이 아닌 시장에서 통용되는 대략적 참고치입니다.")
             return f"{line}\n{note}"
         else:
             return "• 하이일드 신용스프레드: 데이터 없음"
@@ -355,7 +361,8 @@ def get_vix_proxy(api_key):
 
         line = f"<b>🔥 VIX 근사 ETF(VIXY):</b> ${p:.2f} {icon}{abs(c):.2f} ({pct:+.2f}%) - {classification}"
         note = ("※ 시장 변동성 기대치. 15 미만 낮음(안정) · 15~20 보통 · 20~30 높음(경계) · "
-                "30 이상 매우 높음(공포)")
+                "30 이상 매우 높음(공포). VIXY는 VIX 선물을 담는 ETF라 장기적으로 VIX 지수와 "
+                "정확히 같은 스케일로 움직이지 않을 수 있습니다.")
         return f"{line}\n{note}"
 
     except Exception as e:
@@ -381,6 +388,26 @@ def get_risk_indicators_twelve(api_key):
     return "\n".join(out)
 
 
+# ✅ 한국 반도체 대형주: SK하이닉스는 2026년 7월 나스닥 ADR 상장(SKHY) — 미국 상장 종목이라
+#    TwelveData 무료 플랜에서 안정적으로 조회될 가능성이 높습니다.
+#    삼성전자는 아직 뉴욕 ADR이 없어 KRX 원심볼로 시도합니다(무료 플랜에서 실패 가능성 높음).
+def get_korea_stocks_twelve(api_key):
+    out = []
+    out.append(twelvedata_quote_line(
+        "SK하이닉스 ADR (SKHY, 나스닥)", "SKHY", api_key, unit_fmt="${:.2f}"
+    ))
+    # 삼성전자: KRX 원심볼 시도 (실패 가능성 높음, 디버그 로그로 확인)
+    out.append(twelvedata_quote_line(
+        "삼성전자 (005930, KRX)", "005930", api_key,
+        unit_fmt="{:,.0f}원", extra_params={"mic_code": "XKRX"}
+    ))
+    # 삼성전자 백업: 미국 OTC ADR (유동성 낮고 실제 국내 주가와 오차 있을 수 있음)
+    out.append(twelvedata_quote_line(
+        "삼성전자 OTC ADR (SSNLF, 참고용)", "SSNLF", api_key, unit_fmt="${:.2f}"
+    ))
+    return "\n".join(out)
+
+
 def get_stock_prices(api_key):
     symbols = {
         "Tesla (TSLA)": "TSLA",
@@ -391,8 +418,7 @@ def get_stock_prices(api_key):
         "Meta (META)": "META",
         "Berkshire Hathaway (BRK.B)": "BRK.B",
         "Palantir (PLTR)": "PLTR",
-        "SpaceX (SPCX)": "SPCX",
-        "SK 하이닉스 ADR (SKHY)": "SKHY"
+        "SpaceX (SPCX)": "SPCX"
     }
     out = []
     for name, sym in symbols.items():
@@ -433,12 +459,14 @@ def fetch_media_press_ranking_playwright(press_id="215", count=10):
         with sync_playwright() as p:
             browser = p.chromium.launch(args=["--no-sandbox"])
             page = browser.new_page()
-            page.goto(url)
-            page.wait_for_load_state("networkidle")
-            page.wait_for_timeout(2000)
+            # ✅ 수정: 'networkidle'은 광고/분석 스크립트가 계속 떠 있는 뉴스 사이트에서
+            #    끝까지 idle 상태가 안 돼 타임아웃나는 경우가 흔해 제거.
+            #    'domcontentloaded'(페이지 뼈대 로드 완료)로 대체하고 타임아웃을 45초로 연장.
+            page.goto(url, timeout=45000, wait_until="domcontentloaded")
+            page.wait_for_timeout(3000)  # 동적 콘텐츠 렌더링 대기
 
             try:
-                page.wait_for_selector(f"a[href*='/article/{press_id}/']", timeout=10000)
+                page.wait_for_selector(f"a[href*='/article/{press_id}/']", timeout=15000)
                 anchors = page.query_selector_all(f"a[href*='/article/{press_id}/']")[:count]
             except PlaywrightTimeoutError:
                 anchors = page.query_selector_all("ul.list_ranking li a")[:count]
@@ -482,6 +510,7 @@ def build_message():
         f"<b>📈 [{today}] 뉴스 요약 + 시장 지표</b>\n\n"
         f"<b>📊 미국 주요 지수 (ETF 프록시)</b>:\n{get_us_index_proxies(TWELVEDATA_API)}\n\n"
         f"<b>🇰🇷 한국 시장 (ETF 프록시)</b>:\n{korea_proxy}\n\n"
+        f"<b>🇰🇷 한국 개별 종목 (실험적)</b>:\n{get_korea_stocks_twelve(TWELVEDATA_API)}\n\n"
         f"<b>💱 환율</b>:\n{get_exchange_rates()}\n\n"
         f"{fred_data}\n"
         f"{risk_bond_data}\n"
